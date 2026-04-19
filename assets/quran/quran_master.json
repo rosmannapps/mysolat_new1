@@ -1,0 +1,40 @@
+{
+  "surahs": [
+    {
+      "number": 112,
+      "name_ar": "الإخلاص",
+      "name_en": "Al-Ikhlas",
+      "verses": [
+        "قُلْ هُوَ ٱللَّهُ أَحَدٌ",
+        "ٱللَّهُ ٱلصَّمَدُ",
+        "لَمْ يَلِدْ وَلَمْ يُولَدْ",
+        "وَلَمْ يَكُن لَّهُۥ كُفُوًا أَحَدٌ"
+      ],
+      "translations_ms": [
+        "Katakanlah (wahai Muhammad): Dialah Allah Yang Maha Esa;",
+        "Allah tempat bergantung segala sesuatu;",
+        "Dia tidak beranak dan tidak diperanakkan;",
+        "Dan tidak ada sesuatu pun yang setara dengan-Nya."
+      ]
+    },
+    {
+      "number": 113,
+      "name_ar": "الفلق",
+      "name_en": "Al-Falaq",
+      "verses": [
+        "قُلْ أَعُوذُ بِرَبِّ الْفَلَقِ",
+        "مِنْ شَرِّ مَا خَلَقَ",
+        "وَمِنْ شَرِّ غَاسِقٍ إِذَا وَقَبَ",
+        "وَمِنْ شَرِّ النَّفَّاثَاتِ فِي الْعُقَدِ",
+        "وَمِنْ شَرِّ حَاسِدٍ إِذَا حَسَدَ"
+      ],
+      "translations_ms": [
+        "Katakanlah: Aku berlindung kepada Tuhan yang menguasai subuh,",
+        "Dari kejahatan makhluk ciptaan-Nya,",
+        "Dan dari kejahatan malam apabila gelap-gelita,",
+        "Dan dari kejahatan tukang-tukang sihir perempuan yang meniup pada buhul-buhul,",
+        "Dan dari kejahatan pendengki apabila ia dengki."
+      ]
+    }
+  ]
+}
