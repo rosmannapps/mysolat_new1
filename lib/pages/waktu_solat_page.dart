@@ -711,10 +711,10 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
 
   @override
   Widget build(BuildContext context) {
-    final ts = MediaQuery.textScaleFactorOf(context).clamp(1.0, 1.05);
+    final ts = MediaQuery.textScalerOf(context).scale(1.0).clamp(1.0, 1.05);
 
     return MediaQuery(
-      data: MediaQuery.of(context).copyWith(textScaleFactor: ts),
+      data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(ts)),
       child: Scaffold(
         backgroundColor: _bg,
         body: SafeArea(

@@ -30,7 +30,6 @@ class _MushafPageViewState extends State<MushafPageView> {
         classes.add(m.group(1)!);
       }
     }
-    print('Page $pageNumber tajweed classes: $classes');
     _pageCache[pageNumber] = verses;
     return verses;
   }
