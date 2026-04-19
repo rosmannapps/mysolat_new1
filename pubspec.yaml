@@ -50,6 +50,7 @@ dependencies:
   shared_preferences: ^2.5.3
   xml: ^6.5.0
   geocoding: ^3.0.0
+  audioplayers: ^6.6.0
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -92,6 +93,7 @@ flutter:
     - assets/tajwid/
     - assets/translations/
     - assets/kaabah.png
+    - assets/audio/
 
   fonts:
     - family: AmiriQuran

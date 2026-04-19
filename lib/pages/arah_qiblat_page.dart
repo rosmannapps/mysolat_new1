@@ -37,7 +37,7 @@ class _ArahQiblatPageState extends State<ArahQiblatPage>
   static const double _kaabahRing = 7;
 
   // ✅ move badge higher (outside dial) so marker tip touches badge bottom when aligned
-  static const double _kaabahExtraLift = 54;
+  static const double _kaabahExtraLift = 72;
 
   // ✅ rotate image (your tuned value)
   static const double _kaabahImageRotateDeg = -75;
@@ -183,11 +183,12 @@ class _ArahQiblatPageState extends State<ArahQiblatPage>
       body: SafeArea(
         child: Column(
           children: [
-            const SizedBox(height: 10),
+            const SizedBox(height: 4
+            ),
             Expanded(
               child: LayoutBuilder(
                 builder: (context, c) {
-                  final dialSide = math.min(c.maxWidth, c.maxHeight);
+                  final dialSide = math.min(c.maxWidth, c.maxHeight) * 0.82;
                   final canvasW = dialSide;
                   final canvasH = dialSide + (_dialShiftDown * 2);
 
@@ -341,14 +342,13 @@ class _ArahQiblatPageState extends State<ArahQiblatPage>
             ),
 
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 6, 16, 18),
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
               child: SizedBox(
-                height: 118, // fixed height so compass never jumps
                 width: double.infinity,
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 220),
                   curve: Curves.easeOut,
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.55),
                     borderRadius: BorderRadius.circular(22),

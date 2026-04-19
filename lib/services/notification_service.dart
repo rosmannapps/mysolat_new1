@@ -30,6 +30,9 @@ class NotificationService {
       requestAlertPermission: true,
       requestBadgePermission: true,
       requestSoundPermission: true,
+      defaultPresentSound: true,
+      defaultPresentAlert: true,
+      defaultPresentBanner: true,
     );
 
     const InitializationSettings settings = InitializationSettings(
@@ -75,7 +78,9 @@ class NotificationService {
   // ----------------------------------------------------------------------
 
   NotificationDetails _buildPlatformDetails({String? soundName}) {
-    final vibrationPattern = Int64List.fromList([0, 600, 250, 600]);
+    final vibrationPattern = Int64List.fromList([
+      0, 800, 200, 800, 200, 800
+    ]);
 
     // if soundName is null, use default notification sound
     final androidSound = soundName == null
@@ -89,15 +94,17 @@ class NotificationService {
       importance: Importance.max,
       priority: Priority.high,
       playSound: true,
-      sound: androidSound,      // <-- use custom sound if not null
+      sound: androidSound,
       enableVibration: true,
       vibrationPattern: vibrationPattern,
+      fullScreenIntent: true, // ← add this
     );
 
     const iosDetails = DarwinNotificationDetails(
       presentAlert: true,
-      presentSound: true,       // iOS: will use default unless you set a custom one
+      presentSound: true,
       presentBadge: false,
+      interruptionLevel: InterruptionLevel.timeSensitive,
     );
 
     return NotificationDetails(

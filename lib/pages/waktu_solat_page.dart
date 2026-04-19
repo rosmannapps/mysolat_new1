@@ -12,6 +12,7 @@ import 'package:intl/intl.dart';
 import '../models/prayer_times.dart';
 import '../services/prayer_times_service.dart';
 import '../zones/zone_store.dart';
+import '../services/azan_audio_service.dart';
 
 class WaktuSolatPage extends StatefulWidget {
   const WaktuSolatPage({super.key});
@@ -97,6 +98,7 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
   void dispose() {
     _ticker?.cancel();
     _countdownNotifier.dispose();
+    AzanAudioService.instance.dispose();
     super.dispose();
   }
 
@@ -564,6 +566,8 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
     final secondsLeft = target.difference(now).inSeconds;
 
     if (secondsLeft <= 0) {
+      // 🔊 Play Azan when prayer time hits
+      AzanAudioService.instance.playAzan();
       _computeNextPrayer();
 
       final newTarget = _nextAt;

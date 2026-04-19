@@ -1,6 +1,8 @@
 // lib/pages/notification_settings_page.dart
 import 'package:flutter/material.dart';
 import '../services/notification_service.dart';
+import 'package:flutter/services.dart';
+import '../services/azan_audio_service.dart';
 
 class NotificationSettingsPage extends StatefulWidget {
   const NotificationSettingsPage({super.key});
@@ -164,8 +166,18 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                       borderRadius: BorderRadius.circular(14),
                     ),
                   ),
-                  onPressed: () {
-                    NotificationService.instance.showTestNotification();
+                  onPressed: () async {
+                    // Trigger strong haptic immediately (works on iOS + Android)
+                    await HapticFeedback.heavyImpact();
+                    await Future.delayed(const Duration(milliseconds: 200));
+                    await HapticFeedback.heavyImpact();
+                    await Future.delayed(const Duration(milliseconds: 200));
+                    await HapticFeedback.heavyImpact();
+                    // Play Azan audio
+                    await AzanAudioService.instance.playAzan();
+                    // Short delay so iOS registers it properly
+                    await Future.delayed(const Duration(milliseconds: 300));
+                    await NotificationService.instance.showTestNotification();
                   },
                   icon: const Icon(Icons.volume_up_rounded),
                   label: const Text(
