@@ -788,28 +788,72 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
                   child: _buildZonePill(),
                 ),
                 const SizedBox(height: 10),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton.icon(
-                    style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 4,
-                      ),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                    onPressed: _loading ? null : _useCurrentLocationNow,
-                    icon: Icon(
-                      Icons.my_location,
-                      size: 18,
-                      color: _loading ? _muted : _primary,
-                    ),
-                    label: Text(
-                      'Guna Lokasi Semasa',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w900,
-                        color: _loading ? _muted : _primary,
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(18),
+                      onTap: _loading ? null : _useCurrentLocationNow,
+                      child: Ink(
+                        decoration: BoxDecoration(
+                          color: _primary,
+                          borderRadius: BorderRadius.circular(18),
+                          boxShadow: _softShadow,
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 14,
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.location_on_rounded,
+                                size: 22,
+                                color: _loading
+                                    ? Colors.white54
+                                    : Colors.white,
+                              ),
+                              const SizedBox(width: 10),
+                              Text(
+                                _loading
+                                    ? 'Mencari zon solat...'
+                                    : 'Cari Zon Solat Saya',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w900,
+                                  color: _loading
+                                      ? Colors.white54
+                                      : Colors.white,
+                                  letterSpacing: 0.2,
+                                ),
+                              ),
+                              if (!_loading) ...[
+                                const SizedBox(width: 8),
+                                const Icon(
+                                  Icons.arrow_forward_ios_rounded,
+                                  size: 14,
+                                  color: Colors.white70,
+                                ),
+                              ],
+                              if (_loading) ...[
+                                const SizedBox(width: 10),
+                                const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white54,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
                       ),
                     ),
                   ),
