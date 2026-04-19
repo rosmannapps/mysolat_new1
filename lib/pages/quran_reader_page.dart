@@ -1,3 +1,4 @@
+import '../services/prefs_service.dart';
 // lib/pages/quran_reader_page.dart
 import 'dart:convert';
 import 'dart:ui' show ImageFilter;
@@ -5,7 +6,6 @@ import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle, HapticFeedback;
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/bookmark_storage.dart';
 import '../theme/app_theme.dart';
@@ -96,7 +96,7 @@ class _QuranReaderPageState extends State<QuranReaderPage> {
   }
 
   Future<void> _loadPrefs() async {
-    final p = await SharedPreferences.getInstance();
+    final p = PrefsService.instance;
     if (!mounted) return;
 
     setState(() {
@@ -115,7 +115,7 @@ class _QuranReaderPageState extends State<QuranReaderPage> {
   }
 
   Future<void> _savePrefs() async {
-    final p = await SharedPreferences.getInstance();
+    final p = PrefsService.instance;
     await p.setInt(_kArabic, _arabicValue);
     await p.setInt(_kMalay, _malayValue);
     await p.setBool(_kShowTrans, _showTranslation);

@@ -1,4 +1,4 @@
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:mysolat/services/prefs_service.dart';
 
 class QuranPrefs {
   static const _kArSize = 'q_ar_size';
@@ -11,40 +11,40 @@ class QuranPrefs {
 
   // Font sizes
   static Future<double> getArabicFontSize() async =>
-      (await SharedPreferences.getInstance()).getDouble(_kArSize) ?? 26.0;
+      PrefsService.instance.getDouble(_kArSize) ?? 26.0;
   static Future<void> setArabicFontSize(double v) async =>
-      (await SharedPreferences.getInstance()).setDouble(_kArSize, v);
+      PrefsService.instance.setDouble(_kArSize, v);
 
   static Future<double> getMalayFontSize() async =>
-      (await SharedPreferences.getInstance()).getDouble(_kMsSize) ?? 16.0;
+      PrefsService.instance.getDouble(_kMsSize) ?? 16.0;
   static Future<void> setMalayFontSize(double v) async =>
-      (await SharedPreferences.getInstance()).setDouble(_kMsSize, v);
+      PrefsService.instance.setDouble(_kMsSize, v);
 
   // Show translation
   static Future<bool> getShowTranslation() async =>
-      (await SharedPreferences.getInstance()).getBool(_kShowTr) ?? true;
+      PrefsService.instance.getBool(_kShowTr) ?? true;
   static Future<void> setShowTranslation(bool v) async =>
-      (await SharedPreferences.getInstance()).setBool(_kShowTr, v);
+      PrefsService.instance.setBool(_kShowTr, v);
 
   // Last read
   static Future<void> saveLastRead(int surah, int ayah) async {
-    final sp = await SharedPreferences.getInstance();
+    final sp = PrefsService.instance;
     await sp.setInt(_kLastSurah, surah);
     await sp.setInt(_kLastAyah, ayah);
   }
 
   static Future<(int?, int?)> getLastRead() async {
-    final sp = await SharedPreferences.getInstance();
+    final sp = PrefsService.instance;
     return (sp.getInt(_kLastSurah), sp.getInt(_kLastAyah));
   }
 
   // Theme (null = system, true = dark, false = light)
   static Future<bool?> getDarkMode() async {
-    final sp = await SharedPreferences.getInstance();
+    final sp = PrefsService.instance;
     return sp.containsKey(_kDarkMode) ? sp.getBool(_kDarkMode) : null;
   }
   static Future<void> setDarkMode(bool? isDark) async {
-    final sp = await SharedPreferences.getInstance();
+    final sp = PrefsService.instance;
     if (isDark == null) {
       await sp.remove(_kDarkMode);
     } else {
@@ -54,8 +54,8 @@ class QuranPrefs {
 
   // Scroll position (per-surah)
   static Future<double> getScrollOffset(int surah) async =>
-      (await SharedPreferences.getInstance()).getDouble(_kScrollKey(surah)) ?? 0.0;
+      PrefsService.instance.getDouble(_kScrollKey(surah)) ?? 0.0;
 
   static Future<void> setScrollOffset(int surah, double offset) async =>
-      (await SharedPreferences.getInstance()).setDouble(_kScrollKey(surah), offset.clamp(0.0, 1e9));
+      PrefsService.instance.setDouble(_kScrollKey(surah), offset.clamp(0.0, 1e9));
 }

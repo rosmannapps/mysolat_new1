@@ -1,6 +1,6 @@
+import 'package:mysolat/services/prefs_service.dart';
 // lib/services/reader_prefs.dart
 import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class LastRead {
   final int surah;
@@ -38,38 +38,38 @@ class ReaderPrefs {
 
   // ---------------- Font & translation prefs ----------------
   static Future<bool> setShowMalay(bool v) async {
-    final p = await SharedPreferences.getInstance();
+    final p = PrefsService.instance;
     return p.setBool(_kShowMalay, v);
   }
 
   static Future<bool> getShowMalay() async {
-    final p = await SharedPreferences.getInstance();
+    final p = PrefsService.instance;
     return p.getBool(_kShowMalay) ?? true;
   }
 
   static Future<bool> setArabicSize(double v) async {
-    final p = await SharedPreferences.getInstance();
+    final p = PrefsService.instance;
     return p.setDouble(_kArabicSize, v);
   }
 
   static Future<double> getArabicSize() async {
-    final p = await SharedPreferences.getInstance();
+    final p = PrefsService.instance;
     return p.getDouble(_kArabicSize) ?? 28;
   }
 
   static Future<bool> setMalaySize(double v) async {
-    final p = await SharedPreferences.getInstance();
+    final p = PrefsService.instance;
     return p.setDouble(_kMalaySize, v);
   }
 
   static Future<double> getMalaySize() async {
-    final p = await SharedPreferences.getInstance();
+    final p = PrefsService.instance;
     return p.getDouble(_kMalaySize) ?? 16;
   }
 
   // ---------------- Bookmarks (max 2, MRU) ----------------
   static Future<List<Bookmark>> getBookmarks() async {
-    final p = await SharedPreferences.getInstance();
+    final p = PrefsService.instance;
     final raw = p.getStringList(_kBookmarks) ?? const <String>[];
     final list = <Bookmark>[];
     for (final s in raw) {
@@ -84,7 +84,7 @@ class ReaderPrefs {
   }
 
   static Future<void> _saveBookmarks(List<Bookmark> items) async {
-    final p = await SharedPreferences.getInstance();
+    final p = PrefsService.instance;
     // newest first, max 2
     items.sort((a, b) => b.at.compareTo(a.at));
     final trimmed = items.take(2).toList(growable: false);

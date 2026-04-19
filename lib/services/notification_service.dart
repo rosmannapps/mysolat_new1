@@ -1,9 +1,9 @@
+import 'package:mysolat/services/prefs_service.dart';
 // lib/services/notification_service.dart
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class NotificationService {
   NotificationService._internal();
@@ -54,12 +54,12 @@ class NotificationService {
   // ----------------------------------------------------------------------
 
   Future<bool> getNotificationsEnabled() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PrefsService.instance;
     return prefs.getBool(_prefKeyEnabled) ?? false;
   }
 
   Future<void> setNotificationsEnabled(bool value) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PrefsService.instance;
     await prefs.setBool(_prefKeyEnabled, value);
 
     await _ensureInitialized();

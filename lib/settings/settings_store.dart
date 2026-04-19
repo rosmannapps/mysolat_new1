@@ -1,4 +1,4 @@
-import 'package:shared_preferences/shared_preferences.dart';
+import '../services/prefs_service.dart';
 import 'app_settings.dart';
 
 class SettingsStore {
@@ -6,7 +6,7 @@ class SettingsStore {
   static const _kArabicFontSize = 'arabic_font_size';
 
   Future<AppSettings> load() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PrefsService.instance;
 
     final langStr = prefs.getString(_kTranslation) ?? 'ms';
     final size = prefs.getDouble(_kArabicFontSize) ?? AppSettings.defaults.arabicFontSize;
@@ -23,7 +23,8 @@ class SettingsStore {
   }
 
   Future<void> save(AppSettings s) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PrefsService.instance;
+
     await prefs.setString(_kTranslation, s.translation.name);
     await prefs.setDouble(_kArabicFontSize, s.arabicFontSize);
   }

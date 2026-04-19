@@ -1,7 +1,7 @@
+import 'package:mysolat/services/prefs_service.dart';
 // lib/services/bookmark_storage.dart
 import 'dart:convert';
 
-import 'package:shared_preferences/shared_preferences.dart';
 
 class Bookmark {
   final int surahNumber;
@@ -35,7 +35,7 @@ class BookmarkStorage {
   static const _key = 'quran_bookmarks_v1';
 
   static Future<List<Bookmark>> loadBookmarks() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PrefsService.instance;
     final raw = prefs.getString(_key);
     if (raw == null || raw.isEmpty) return [];
     final List list = jsonDecode(raw) as List;
@@ -45,7 +45,7 @@ class BookmarkStorage {
   }
 
   static Future<void> _saveBookmarks(List<Bookmark> bookmarks) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PrefsService.instance;
     final encoded =
     jsonEncode(bookmarks.map((b) => b.toJson()).toList());
     await prefs.setString(_key, encoded);
@@ -74,7 +74,7 @@ class BookmarkStorage {
   }
 
   static Future<void> clearAll() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PrefsService.instance;
     await prefs.remove(_key);
   }
 }

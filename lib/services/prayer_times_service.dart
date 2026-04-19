@@ -1,8 +1,8 @@
+import 'package:mysolat/services/prefs_service.dart';
 // lib/services/prayer_times_service.dart
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/prayer_times.dart';
 import '../models/monthly_prayer_entry.dart';
@@ -48,7 +48,7 @@ class PrayerTimesService {
   );
 
   Future<PrayerTimes?> readCachedDay(String zoneCode, DateTime date) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PrefsService.instance;
     final raw = prefs.getString(_dayCacheKey(zoneCode, date));
     if (raw == null || raw.trim().isEmpty) return null;
 
@@ -69,7 +69,7 @@ class PrayerTimesService {
       DateTime date,
       PrayerTimes times,
       ) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PrefsService.instance;
     await prefs.setString(
       _dayCacheKey(zoneCode, date),
       jsonEncode(_ptToJson(times)),

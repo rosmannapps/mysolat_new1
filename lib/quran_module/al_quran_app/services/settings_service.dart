@@ -1,15 +1,15 @@
-import 'package:shared_preferences/shared_preferences.dart';
+import '../../../services/prefs_service.dart';
 
 class SettingsService {
   static const _keyLanguage = 'translation_language';
 
   static Future<void> setLanguage(String code) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PrefsService.instance;
     await prefs.setString(_keyLanguage, code);
   }
 
   static Future<String> getLanguage() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PrefsService.instance;
     return prefs.getString(_keyLanguage) ?? 'en';
   }
 }

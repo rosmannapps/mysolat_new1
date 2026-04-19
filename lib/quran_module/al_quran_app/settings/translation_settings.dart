@@ -1,4 +1,4 @@
-import 'package:shared_preferences/shared_preferences.dart';
+import '../../../services/prefs_service.dart';
 
 class TranslationSettings {
   static const _keyTranslationId = 'translation_id';
@@ -9,12 +9,12 @@ class TranslationSettings {
   static const int defaultEnglishId = 20;
 
   static Future<int> getTranslationId() async {
-    final sp = await SharedPreferences.getInstance();
+    final sp = PrefsService.instance;
     return sp.getInt(_keyTranslationId) ?? defaultEnglishId;
   }
 
   static Future<void> setTranslationId(int id) async {
-    final sp = await SharedPreferences.getInstance();
+    final sp = PrefsService.instance;
     await sp.setInt(_keyTranslationId, id);
   }
 }

@@ -1,3 +1,4 @@
+import '../services/prefs_service.dart';
 // lib/pages/waktu_solat_page.dart
 import 'dart:async';
 import 'dart:ui' show FontFeature;
@@ -7,7 +8,6 @@ import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:hijri_date_time/hijri_date_time.dart';
 import 'package:intl/intl.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/prayer_times.dart';
 import '../services/prayer_times_service.dart';
@@ -44,7 +44,7 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
 
   String _nextName = '';
   DateTime? _nextAt;
-  String _countdown = '—';
+  final _countdownNotifier = ValueNotifier<String>('—');
   Timer? _ticker;
 
   DateTime _lastTickDay = DateTime.now();
@@ -96,6 +96,7 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
   @override
   void dispose() {
     _ticker?.cancel();
+    _countdownNotifier.dispose();
     super.dispose();
   }
 
@@ -103,7 +104,7 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
     required String state,
     required String zoneCode,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PrefsService.instance;
     await prefs.setString(_kLastState, state);
     await prefs.setString(_kLastZoneCode, zoneCode);
     await prefs.setBool(_kHasInitializedZone, true);
@@ -296,7 +297,7 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
 
     _stateList = List<String>.from(_zones.states)..sort();
 
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PrefsService.instance;
     final savedState = prefs.getString(_kLastState);
     final savedZoneCode = prefs.getString(_kLastZoneCode);
     final hasInitialized = prefs.getBool(_kHasInitializedZone) ?? false;
@@ -524,13 +525,13 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
       setState(() {
         _nextName = '';
         _nextAt = null;
-        _countdown = '—';
+        _countdownNotifier.value = '—';
       });
     } else {
       setState(() {
         _nextName = next!.$1;
         _nextAt = next!.$2;
-        _countdown = _formatCountdown(next!.$2, now);
+        _countdownNotifier.value = _formatCountdown(next!.$2, now);
       });
     }
   }
@@ -568,13 +569,13 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
       final newTarget = _nextAt;
       if (newTarget != null) {
         setState(() {
-          _countdown = _formatCountdown(newTarget, DateTime.now());
+          _countdownNotifier.value = _formatCountdown(target, now);
         });
       }
       return;
     }
 
-    setState(() => _countdown = _formatCountdown(target, now));
+    _countdownNotifier.value = _formatCountdown(target, now);
   }
 
   static const int _hijriOffsetDays = -1;
@@ -1042,15 +1043,18 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
               child: FittedBox(
                 fit: BoxFit.scaleDown,
                 alignment: Alignment.centerRight,
-                child: Text(
-                  _countdown,
-                  maxLines: 1,
-                  overflow: TextOverflow.visible,
-                  style: const TextStyle(
-                    color: _primary,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w900,
-                    fontFeatures: [FontFeature.tabularFigures()],
+                child: ValueListenableBuilder<String>(
+                  valueListenable: _countdownNotifier,
+                  builder: (_, val, __) => Text(
+                    val,
+                    maxLines: 1,
+                    overflow: TextOverflow.visible,
+                    style: const TextStyle(
+                      color: _primary,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
                   ),
                 ),
               ),

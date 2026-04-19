@@ -1,3 +1,4 @@
+import '../services/prefs_service.dart';
 // lib/pages/zikir_page.dart
 import 'dart:convert';
 import 'dart:io' show Platform;
@@ -5,7 +6,6 @@ import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle, HapticFeedback;
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../theme/app_theme.dart';
 import '../widgets/aa_text_settings_sheet.dart';
@@ -65,7 +65,7 @@ class _ZikirPageState extends State<ZikirPage> {
 
   Future<void> _loadPrefs() async {
     try {
-      final p = await SharedPreferences.getInstance();
+      final p = PrefsService.instance;
       final a = p.getInt(_kArabic);
       final m = p.getInt(_kMalay);
       final sm = p.getBool(_kShowMalay);
@@ -89,7 +89,7 @@ class _ZikirPageState extends State<ZikirPage> {
 
   Future<void> _savePrefs() async {
     try {
-      final p = await SharedPreferences.getInstance();
+      final p = PrefsService.instance;
       await p.setInt(_kArabic, _arabicValue);
       await p.setInt(_kMalay, _malayValue);
       await p.setBool(_kShowMalay, _showMalay);

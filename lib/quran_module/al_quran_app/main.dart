@@ -1,3 +1,4 @@
+import '../../../services/prefs_service.dart';
 // lib/main.dart
 import 'dart:async';
 import 'dart:convert';
@@ -6,7 +7,6 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xml/xml.dart';
 import 'package:flutter/services.dart' show rootBundle, HapticFeedback;
 
@@ -1001,7 +1001,7 @@ class ReaderSettingsStore extends ChangeNotifier {
   Timer? _debounce;
 
   Future<void> load() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PrefsService.instance;
     final raw = prefs.getString(_prefsKey);
     if (raw == null || raw.trim().isEmpty) return;
 
@@ -1018,7 +1018,7 @@ class ReaderSettingsStore extends ChangeNotifier {
   Future<void> save(ReaderSettings v) async {
     _value = v;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PrefsService.instance;
     await prefs.setString(_prefsKey, json.encode(v.toJson()));
   }
 
@@ -1032,7 +1032,7 @@ class ReaderSettingsStore extends ChangeNotifier {
   void _schedulePersist() {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 350), () async {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = PrefsService.instance;
       await prefs.setString(_prefsKey, json.encode(_value.toJson()));
     });
   }
@@ -1380,7 +1380,7 @@ class BookmarkStore {
 
   Future<void> load() async {
     items.clear();
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PrefsService.instance;
     final raw = prefs.getString(_prefsKey);
     if (raw == null || raw.trim().isEmpty) return;
 
@@ -1401,7 +1401,7 @@ class BookmarkStore {
   }
 
   Future<void> _save() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = PrefsService.instance;
     final payload = {
       'nextSlot': _nextSlot,
       'items': items.map((e) => e.toJson()).toList(),
