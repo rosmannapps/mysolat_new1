@@ -13,6 +13,7 @@ import '../models/prayer_times.dart';
 import '../services/prayer_times_service.dart';
 import '../zones/zone_store.dart';
 import '../services/azan_audio_service.dart';
+import '../services/notification_service.dart';
 
 class WaktuSolatPage extends StatefulWidget {
   const WaktuSolatPage({super.key});
@@ -100,6 +101,31 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
     _countdownNotifier.dispose();
     AzanAudioService.instance.dispose();
     super.dispose();
+  }
+
+
+  Future<void> _playPrayerSound() async {
+    final mode = await AzanAudioService.instance.getSoundMode();
+    switch (mode) {
+      case AzanSoundMode.none:
+        break;
+      case AzanSoundMode.azanOnly:
+        await AzanAudioService.instance.playAzan();
+        break;
+      case AzanSoundMode.beepOnly:
+        await NotificationService.instance.showSimpleNotification(
+          title: 'Waktu Solat',
+          body: 'Masuk waktu ' + _nextName,
+        );
+        break;
+      case AzanSoundMode.beepAndAzan:
+        await AzanAudioService.instance.playAzan();
+        await NotificationService.instance.showSimpleNotification(
+          title: 'Waktu Solat',
+          body: 'Masuk waktu ' + _nextName,
+        );
+        break;
+    }
   }
 
   Future<void> _saveSelection({
@@ -566,8 +592,7 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
     final secondsLeft = target.difference(now).inSeconds;
 
     if (secondsLeft <= 0) {
-      // 🔊 Play Azan when prayer time hits
-      AzanAudioService.instance.playAzan();
+      _playPrayerSound();
       _computeNextPrayer();
 
       final newTarget = _nextAt;
@@ -666,6 +691,7 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
     if (picked == _selectedState) return;
     await _applyStateChange(picked);
   }
+
 
   Future<void> _openZonePicker() async {
     if (_zoneList.isEmpty) return;
