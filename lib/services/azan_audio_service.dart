@@ -31,7 +31,7 @@ class AzanAudioService {
       _player = AudioPlayer();
       await _player!.setReleaseMode(ReleaseMode.stop);
       await _player!.setVolume(1.0);
-      await _player!.play(AssetSource('audio/allahu_akbar_short.mp3'));
+      await _player!.play(AssetSource('audio/gendang.aac'));
       _isPlaying = true;
       _player!.onPlayerComplete.listen((_) => _isPlaying = false);
     } catch (e) {

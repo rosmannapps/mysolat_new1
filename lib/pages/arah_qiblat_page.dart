@@ -2,9 +2,11 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_compass/flutter_compass.dart';
+import 'package:geolocator/geolocator.dart';
 
 class ArahQiblatPage extends StatefulWidget {
   const ArahQiblatPage({super.key});
@@ -15,7 +17,7 @@ class ArahQiblatPage extends StatefulWidget {
 
 class _ArahQiblatPageState extends State<ArahQiblatPage>
     with SingleTickerProviderStateMixin {
-  static const double _qiblaDeg = 292.0;
+  double _qiblaDeg = 292.0;
   static const double _toleranceDeg = 3.0;
 
   static const Color _bg = Color(0xFFF6F4EF);
@@ -26,91 +28,145 @@ class _ArahQiblatPageState extends State<ArahQiblatPage>
   static const Color _accent = Color(0xFF1F5E3E);
   static const Color _degreeRed = Color(0xFFD83B2D);
 
-  // Dial layout
   static const double _dialShiftDown = 78;
-
-  // Fixed marker line
   static const double _markerWidth = 5;
-
-  // Kaabah badge
   static const double _kaabahSize = 88;
   static const double _kaabahRing = 7;
-
-  // ✅ move badge higher (outside dial) so marker tip touches badge bottom when aligned
   static const double _kaabahExtraLift = 72;
-
-  // ✅ rotate image (your tuned value)
   static const double _kaabahImageRotateDeg = -75;
-
-  // ✅ smooth rotation strength: lower = smoother, higher = snappier
-  static const double _smoothAlpha = 0.18;
+  static const double _smoothAlpha = 0.08;
 
   StreamSubscription<CompassEvent>? _sub;
-
-  double? _headingDeg; // raw
-  double? _smoothHeadingDeg; // smoothed
-
+  double? _headingDeg;
+  double? _smoothHeadingDeg;
   bool _isAligned = false;
   bool _didVibrate = false;
-
-  // calibration hint
   bool _needsCalibrationHint = false;
+  bool _disposed = false;
 
-  late final AnimationController _pulseCtl;
+  // Flash animation
+  late final AnimationController _flashCtl;
+  late final Animation<double> _flashAnim;
+
+  // Confetti
+  late final ConfettiController _confettiCtl;
 
   @override
   void initState() {
     super.initState();
 
-    _pulseCtl = AnimationController(
+    // Flash animation controller
+    _flashCtl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1200),
+      duration: const Duration(milliseconds: 600),
+    );
+    _flashAnim = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _flashCtl, curve: Curves.easeOut),
     );
 
+    // Confetti controller
+    _confettiCtl = ConfettiController(
+      duration: const Duration(seconds: 3),
+    );
+
+    _updateQiblaFromGps();
+
     _sub = FlutterCompass.events?.listen((event) {
+      if (_disposed) return;
       final h = event.heading;
       if (h == null) return;
-
       final heading = _norm360(h);
-
-      // ---- smooth heading (low-pass filter, safe)
       final prev = _smoothHeadingDeg ?? heading;
       final smoothed = _lerpAngleDeg(prev, heading, _smoothAlpha);
-
-      // aligned when heading ~= qibla (marker fixed)
       final aligned = _angleDiffDeg(_qiblaDeg, heading) <= _toleranceDeg;
+      final needsHint = _isBadAccuracy(event.accuracy);
 
-      // optional calibration hint (defensive: accuracy can be null)
-      final acc = event.accuracy;
-      final needsHint = _isBadAccuracy(acc);
-
-      if (!mounted) return;
-      setState(() {
-        _headingDeg = heading;
-        _smoothHeadingDeg = smoothed;
-        _isAligned = aligned;
-        _needsCalibrationHint = needsHint;
-      });
+      if (_disposed || !mounted) return;
+      try {
+        setState(() {
+          _headingDeg = heading;
+          _smoothHeadingDeg = smoothed;
+          _isAligned = aligned;
+          _needsCalibrationHint = needsHint;
+        });
+      } catch (_) {}
 
       if (aligned && !_didVibrate) {
         _didVibrate = true;
-        HapticFeedback.mediumImpact();
-        _startPulse();
+        _triggerCelebration();
       } else if (!aligned) {
         _didVibrate = false;
-        _stopPulse();
+        _stopCelebration();
       }
     });
   }
 
   @override
   void dispose() {
+    _disposed = true;
     _sub?.cancel();
-    _pulseCtl.dispose();
+    _sub = null;
+    _flashCtl.dispose();
+    _confettiCtl.dispose();
     super.dispose();
   }
 
-  // ---------- helpers ----------
+  Future<void> _triggerCelebration() async {
+    if (_disposed) return;
+
+    // Triple strong haptic
+    await HapticFeedback.heavyImpact();
+    await Future.delayed(const Duration(milliseconds: 120));
+    if (_disposed) return;
+    await HapticFeedback.heavyImpact();
+    await Future.delayed(const Duration(milliseconds: 120));
+    if (_disposed) return;
+    await HapticFeedback.heavyImpact();
+
+    // Green flash
+    if (_disposed || !mounted) return;
+    _flashCtl.forward(from: 0.0);
+
+    // Confetti
+    if (_disposed || !mounted) return;
+    _confettiCtl.play();
+  }
+
+  void _stopCelebration() {
+    if (_disposed) return;
+    if (_flashCtl.isAnimating) _flashCtl.stop();
+    _confettiCtl.stop();
+  }
+
+  Future<void> _updateQiblaFromGps() async {
+    try {
+      final perm = await Geolocator.checkPermission();
+      if (_disposed || !mounted) return;
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) return;
+      Position? pos = await Geolocator.getLastKnownPosition();
+      pos ??= await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.medium,
+        timeLimit: const Duration(seconds: 15),
+      );
+      if (_disposed || !mounted) return;
+      final qibla = _computeQiblaAngle(pos.latitude, pos.longitude);
+      if (_disposed || !mounted) return;
+      setState(() => _qiblaDeg = qibla);
+    } catch (_) {}
+  }
+
+  double _computeQiblaAngle(double lat, double lon) {
+    const meccaLat = 21.4225;
+    const meccaLon = 39.8262;
+    final lat1 = lat * math.pi / 180.0;
+    final lat2 = meccaLat * math.pi / 180.0;
+    final dLon = (meccaLon - lon) * math.pi / 180.0;
+    final y = math.sin(dLon) * math.cos(lat2);
+    final x = math.cos(lat1) * math.sin(lat2) -
+        math.sin(lat1) * math.cos(lat2) * math.cos(dLon);
+    return (math.atan2(y, x) * 180.0 / math.pi + 360) % 360;
+  }
 
   static double _norm360(double d) {
     final x = d % 360;
@@ -118,8 +174,7 @@ class _ArahQiblatPageState extends State<ArahQiblatPage>
   }
 
   static double _angleDiffDeg(double a, double b) {
-    final d = ((a - b) + 540) % 360 - 180;
-    return d.abs();
+    return (((a - b) + 540) % 360 - 180).abs();
   }
 
   static double _lerpAngleDeg(double from, double to, double t) {
@@ -129,23 +184,14 @@ class _ArahQiblatPageState extends State<ArahQiblatPage>
 
   static bool _isBadAccuracy(double? acc) {
     if (acc == null) return false;
-    if (acc <= 0) return true; // unknown/invalid readings on some devices
-    return acc > 25; // degrees; bigger = worse
-  }
-
-  void _startPulse() {
-    if (_pulseCtl.isAnimating) return;
-    _pulseCtl.repeat(reverse: true);
-  }
-
-  void _stopPulse() {
-    if (!_pulseCtl.isAnimating) return;
-    _pulseCtl.stop();
-    _pulseCtl.value = 0;
+    if (acc <= 0) return true;
+    return acc > 25;
   }
 
   void _reset() {
+    if (_disposed) return;
     setState(() => _didVibrate = false);
+    _stopCelebration();
     HapticFeedback.selectionClick();
   }
 
@@ -181,211 +227,246 @@ class _ArahQiblatPageState extends State<ArahQiblatPage>
         ],
       ),
       body: SafeArea(
-        child: Column(
+        child: Stack(
           children: [
-            const SizedBox(height: 4
-            ),
-            Expanded(
-              child: LayoutBuilder(
-                builder: (context, c) {
-                  final dialSide = math.min(c.maxWidth, c.maxHeight) * 0.82;
-                  final canvasW = dialSide;
-                  final canvasH = dialSide + (_dialShiftDown * 2);
+            // Main content
+            Column(
+              children: [
+                const SizedBox(height: 4),
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, c) {
+                      final dialSide =
+                          math.min(c.maxWidth, c.maxHeight) * 0.82;
+                      final canvasW = dialSide;
+                      final canvasH = dialSide + (_dialShiftDown * 2);
+                      final size = Size(canvasW, canvasH);
+                      final center = Offset(
+                          canvasW / 2, dialSide / 2 + _dialShiftDown);
+                      final r = dialSide / 2;
+                      final dialRadius = r * 0.86;
+                      final outerStroke = r * 0.09;
+                      final dialTopY =
+                          center.dy - dialRadius - outerStroke / 2;
+                      final markerTop = math.max(6.0, dialTopY - 26);
+                      final markerBottom = dialTopY + 2;
+                      final markerHeight =
+                          (markerBottom - markerTop).clamp(14.0, 90.0);
+                      final qiblaRad =
+                          (_qiblaDeg - 90) * math.pi / 180.0;
+                      final badgeRadius =
+                          dialRadius + outerStroke / 2 + _kaabahExtraLift;
+                      final badgeCenter = center +
+                          Offset(math.cos(qiblaRad),
+                                  math.sin(qiblaRad)) *
+                              badgeRadius;
+                      final connectorStart = center +
+                          Offset(math.cos(qiblaRad),
+                                  math.sin(qiblaRad)) *
+                              (dialRadius + outerStroke * 0.05);
+                      final connectorEnd = center +
+                          Offset(math.cos(qiblaRad),
+                                  math.sin(qiblaRad)) *
+                              (badgeRadius - (_kaabahSize * 0.44));
+                      final glowOpacity = _isAligned ? 0.26 : 0.14;
 
-                  final size = Size(canvasW, canvasH);
-                  final center = Offset(canvasW / 2, dialSide / 2 + _dialShiftDown);
-
-                  final r = dialSide / 2;
-                  final dialRadius = r * 0.86;
-                  final outerStroke = r * 0.09;
-
-                  final dialTopY = center.dy - dialRadius - outerStroke / 2;
-
-                  // fixed marker just above dial
-                  final markerTop = math.max(6.0, dialTopY - 26);
-                  final markerBottom = dialTopY + 2;
-                  final markerHeight = (markerBottom - markerTop).clamp(14.0, 90.0);
-
-                  // qibla position in dial coordinates
-                  final qiblaRad = (_qiblaDeg - 90) * math.pi / 180.0;
-
-                  // badge radius (outside dial)
-                  final badgeRadius = dialRadius + outerStroke / 2 + _kaabahExtraLift;
-
-                  // badge center in dial space
-                  final badgeCenter =
-                      center + Offset(math.cos(qiblaRad), math.sin(qiblaRad)) * badgeRadius;
-
-                  // connector line from dial edge to badge (dial space)
-                  final connectorStart = center +
-                      Offset(math.cos(qiblaRad), math.sin(qiblaRad)) *
-                          (dialRadius + outerStroke * 0.05);
-                  final connectorEnd = center +
-                      Offset(math.cos(qiblaRad), math.sin(qiblaRad)) *
-                          (badgeRadius - (_kaabahSize * 0.44));
-
-                  final glowOpacity = _isAligned ? 0.26 : 0.14;
-
-                  return Center(
-                    child: SizedBox(
-                      width: canvasW,
-                      height: canvasH,
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          // background soft glow (existing)
-                          Positioned.fill(
-                            child: IgnorePointer(
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  gradient: RadialGradient(
-                                    colors: [
-                                      _accent.withOpacity(glowOpacity),
-                                      Colors.transparent,
-                                    ],
-                                    stops: const [0.0, 0.78],
+                      return Center(
+                        child: SizedBox(
+                          width: canvasW,
+                          height: canvasH,
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Positioned.fill(
+                                child: IgnorePointer(
+                                  child: DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      gradient: RadialGradient(
+                                        colors: [
+                                          _accent
+                                              .withOpacity(glowOpacity),
+                                          Colors.transparent,
+                                        ],
+                                        stops: const [0.0, 0.78],
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                          ),
 
-                          // FIXED marker (does not rotate)
-                          Positioned(
-                            top: markerTop,
-                            left: center.dx - _markerWidth / 2,
-                            child: Container(
-                              width: _markerWidth,
-                              height: markerHeight,
-                              decoration: BoxDecoration(
-                                color: _accent,
-                                borderRadius: BorderRadius.circular(999),
-                              ),
-                            ),
-                          ),
-
-                          // ROTATING group: dial + connector + needle + kaabah
-                          Positioned.fill(
-                            child: Transform(
-                              alignment: Alignment.topLeft,
-                              transform: Matrix4.identity()
-                                ..translate(center.dx, center.dy)
-                                ..rotateZ(groupRotationRad)
-                                ..translate(-center.dx, -center.dy),
-                              child: Stack(
-                                clipBehavior: Clip.none,
-                                children: [
-                                  CustomPaint(
-                                    size: size,
-                                    painter: _CompassDialPainter(
-                                      center: center,
-                                      ringColor: _ring,
-                                      tickColor: _tick,
-                                      cardinalColor: _cardinal,
-                                      degreeColor: _degreeRed,
-                                      dialRadius: dialRadius,
-                                      outerStroke: outerStroke,
-                                    ),
-                                  ),
-
-                                  // ✅ pulsing inner glow when aligned (micro polish)
-                                  if (_isAligned)
-                                    CustomPaint(
-                                      size: size,
-                                      painter: _PulseGlowPainter(
-                                        repaint: _pulseCtl,
-                                        center: center,
-                                        radius: dialRadius * 0.94,
-                                        color: _accent,
+                              // Green flash overlay
+                              AnimatedBuilder(
+                                animation: _flashAnim,
+                                builder: (_, __) => Positioned.fill(
+                                  child: IgnorePointer(
+                                    child: Opacity(
+                                      opacity: (1 - _flashAnim.value) *
+                                          0.35,
+                                      child: DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          color: _accent,
+                                          borderRadius:
+                                              BorderRadius.circular(
+                                                  dialSide / 2),
+                                        ),
                                       ),
                                     ),
-
-                                  CustomPaint(
-                                    size: size,
-                                    painter: _ConnectorPainter(
-                                      start: connectorStart,
-                                      end: connectorEnd,
-                                      color: _isAligned ? _accent : _accent.withOpacity(0.70),
-                                    ),
                                   ),
-
-                                  CustomPaint(
-                                    size: size,
-                                    painter: _NeedlePainter(
-                                      center: center,
-                                      qiblaDeg: _qiblaDeg,
-                                      color: _isAligned ? _accent : _needleOff,
-                                    ),
-                                  ),
-
-                                  Positioned(
-                                    left: badgeCenter.dx - (_kaabahSize + _kaabahRing * 2) / 2,
-                                    top: badgeCenter.dy - (_kaabahSize + _kaabahRing * 2) / 2,
-                                    child: _KaabahBadge(
-                                      assetPath: 'assets/kaabah.png',
-                                      size: _kaabahSize,
-                                      ringWidth: _kaabahRing,
-                                      ringColor: _isAligned ? _accent : _accent.withOpacity(0.75),
-                                      imageRotateDeg: _kaabahImageRotateDeg,
-                                    ),
-                                  ),
-                                ],
+                                ),
                               ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
 
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-              child: SizedBox(
-                width: double.infinity,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOut,
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.55),
-                    borderRadius: BorderRadius.circular(22),
-                    border: Border.all(color: Colors.black.withOpacity(0.08)),
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        _isAligned
-                            ? 'Tepat menghadap Kaabah'
-                            : 'Pusing phone sehingga\nposisi kaabah\nberada di tengah',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w900,
-                          color: _isAligned ? _accent : _cardinal,
-                          height: 1.10,
-                        ),
-                      ),
-                      // ✅ optional calibration hint (no layout jump)
-                      if (!_isAligned && _needsCalibrationHint) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          'Gerakkan telefon dalam bentuk angka 8\nuntuk kalibrasi kompas',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w700,
-                            color: _cardinal.withOpacity(0.70),
-                            height: 1.10,
+                              Positioned(
+                                top: markerTop,
+                                left: center.dx - _markerWidth / 2,
+                                child: Container(
+                                  width: _markerWidth,
+                                  height: markerHeight,
+                                  decoration: BoxDecoration(
+                                    color: _accent,
+                                    borderRadius:
+                                        BorderRadius.circular(999),
+                                  ),
+                                ),
+                              ),
+                              Positioned.fill(
+                                child: Transform(
+                                  alignment: Alignment.topLeft,
+                                  transform: Matrix4.identity()
+                                    ..translate(center.dx, center.dy)
+                                    ..rotateZ(groupRotationRad)
+                                    ..translate(
+                                        -center.dx, -center.dy),
+                                  child: Stack(
+                                    clipBehavior: Clip.none,
+                                    children: [
+                                      CustomPaint(
+                                        size: size,
+                                        painter: _CompassDialPainter(
+                                          center: center,
+                                          ringColor: _ring,
+                                          tickColor: _tick,
+                                          cardinalColor: _cardinal,
+                                          degreeColor: _degreeRed,
+                                          dialRadius: dialRadius,
+                                          outerStroke: outerStroke,
+                                        ),
+                                      ),
+                                      CustomPaint(
+                                        size: size,
+                                        painter: _ConnectorPainter(
+                                          start: connectorStart,
+                                          end: connectorEnd,
+                                          color: _isAligned
+                                              ? _accent
+                                              : _accent
+                                                  .withOpacity(0.70),
+                                        ),
+                                      ),
+                                      CustomPaint(
+                                        size: size,
+                                        painter: _NeedlePainter(
+                                          center: center,
+                                          qiblaDeg: _qiblaDeg,
+                                          color: _isAligned
+                                              ? _accent
+                                              : _needleOff,
+                                        ),
+                                      ),
+                                      Positioned(
+                                        left: badgeCenter.dx -
+                                            (_kaabahSize +
+                                                    _kaabahRing * 2) /
+                                                2,
+                                        top: badgeCenter.dy -
+                                            (_kaabahSize +
+                                                    _kaabahRing * 2) /
+                                                2,
+                                        child: _KaabahBadge(
+                                          assetPath:
+                                              'assets/kaabah.png',
+                                          size: _kaabahSize,
+                                          ringWidth: _kaabahRing,
+                                          ringColor: _isAligned
+                                              ? _accent
+                                              : _accent
+                                                  .withOpacity(0.75),
+                                          imageRotateDeg:
+                                              _kaabahImageRotateDeg,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      ],
-                    ],
+                      );
+                    },
                   ),
                 ),
+
+                // Bottom card - fixed height
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 400),
+                    width: double.infinity,
+                    height: 80,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 18, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: _isAligned
+                          ? _accent.withOpacity(0.15)
+                          : Colors.white.withOpacity(0.55),
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(
+                        color: _isAligned
+                            ? _accent.withOpacity(0.5)
+                            : Colors.black.withOpacity(0.08),
+                        width: _isAligned ? 2 : 1,
+                      ),
+                    ),
+                    child: Center(
+                      child: Text(
+                        _isAligned
+                            ? '🕋  Tepat menghadap Kaabah  ✓'
+                            : _needsCalibrationHint
+                                ? 'Gerakkan telefon bentuk angka 8\nuntuk kalibrasi kompas'
+                                : 'Pusing phone sehingga Kaabah\nberada di atas penanda hijau',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: _isAligned ? 17 : 16,
+                          fontWeight: FontWeight.w900,
+                          color: _isAligned ? _accent : _cardinal,
+                          height: 1.3,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            // Confetti — shoots from top center
+            Align(
+              alignment: Alignment.topCenter,
+              child: ConfettiWidget(
+                confettiController: _confettiCtl,
+                blastDirectionality: BlastDirectionality.explosive,
+                numberOfParticles: 30,
+                maxBlastForce: 20,
+                minBlastForce: 8,
+                emissionFrequency: 0.05,
+                gravity: 0.3,
+                colors: const [
+                  Color(0xFF1F5E3E),
+                  Color(0xFF4CAF50),
+                  Color(0xFFB68D40),
+                  Color(0xFFFFD700),
+                  Color(0xFF81C784),
+                  Colors.white,
+                ],
               ),
             ),
           ],
@@ -446,49 +527,6 @@ class _KaabahBadge extends StatelessWidget {
   }
 }
 
-/// ✅ Pulsing inner glow (only used when aligned)
-class _PulseGlowPainter extends CustomPainter {
-  final Listenable repaint;
-  final Offset center;
-  final double radius;
-  final Color color;
-
-  _PulseGlowPainter({
-    required this.repaint,
-    required this.center,
-    required this.radius,
-    required this.color,
-  }) : super(repaint: repaint);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    // value 0..1
-    final v = (repaint as Animation<double>).value;
-    final strength = 0.20 + (v * 0.10);
-
-    final paint = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          color.withOpacity(strength),
-          color.withOpacity(strength * 0.40),
-          Colors.transparent,
-        ],
-        stops: const [0.0, 0.55, 1.0],
-      ).createShader(Rect.fromCircle(center: center, radius: radius))
-      ..isAntiAlias = true;
-
-    canvas.drawCircle(center, radius, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _PulseGlowPainter oldDelegate) {
-    return oldDelegate.center != center ||
-        oldDelegate.radius != radius ||
-        oldDelegate.color != color ||
-        oldDelegate.repaint != repaint;
-  }
-}
-
 class _ConnectorPainter extends CustomPainter {
   final Offset start;
   final Offset end;
@@ -502,19 +540,19 @@ class _ConnectorPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final p = Paint()
-      ..color = color
-      ..strokeWidth = 4
-      ..strokeCap = StrokeCap.round
-      ..isAntiAlias = true;
-
-    canvas.drawLine(start, end, p);
+    canvas.drawLine(
+        start,
+        end,
+        Paint()
+          ..color = color
+          ..strokeWidth = 4
+          ..strokeCap = StrokeCap.round
+          ..isAntiAlias = true);
   }
 
   @override
-  bool shouldRepaint(covariant _ConnectorPainter oldDelegate) {
-    return oldDelegate.start != start || oldDelegate.end != end || oldDelegate.color != color;
-  }
+  bool shouldRepaint(covariant _ConnectorPainter o) =>
+      o.start != start || o.end != end || o.color != color;
 }
 
 class _NeedlePainter extends CustomPainter {
@@ -531,58 +569,50 @@ class _NeedlePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final r = math.min(size.width, size.height) / 2;
-
     final a = (qiblaDeg - 90) * math.pi / 180.0;
     final dir = Offset(math.cos(a), math.sin(a));
-
     final tip = center + dir * (r * 0.70);
     final tail = center - dir * (r * 0.44);
-
     Offset perp(Offset v) => Offset(-v.dy, v.dx);
-
     final p = perp(dir);
     final headW = r * 0.16;
     final tailW = r * 0.10;
-
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.fill
       ..isAntiAlias = true;
-
     final headBase = center + dir * (r * 0.10);
-    final headPath = Path()
-      ..moveTo(tip.dx, tip.dy)
-      ..lineTo(headBase.dx + p.dx * (headW / 2), headBase.dy + p.dy * (headW / 2))
-      ..lineTo(headBase.dx - p.dx * (headW / 2), headBase.dy - p.dy * (headW / 2))
-      ..close();
-    canvas.drawPath(headPath, paint);
-
+    canvas.drawPath(
+        Path()
+          ..moveTo(tip.dx, tip.dy)
+          ..lineTo(headBase.dx + p.dx * (headW / 2),
+              headBase.dy + p.dy * (headW / 2))
+          ..lineTo(headBase.dx - p.dx * (headW / 2),
+              headBase.dy - p.dy * (headW / 2))
+          ..close(),
+        paint);
     final tailBase = center - dir * (r * 0.08);
-    final tailPath = Path()
-      ..moveTo(tail.dx, tail.dy)
-      ..lineTo(tailBase.dx + p.dx * (tailW / 2), tailBase.dy + p.dy * (tailW / 2))
-      ..lineTo(tailBase.dx - p.dx * (tailW / 2), tailBase.dy - p.dy * (tailW / 2))
-      ..close();
-
-    final tailPaint = Paint()
-      ..color = color.withOpacity(0.25)
-      ..style = PaintingStyle.fill
-      ..isAntiAlias = true;
-    canvas.drawPath(tailPath, tailPaint);
-
-    final hubOuter = Paint()..color = color..isAntiAlias = true;
-    final hubInner = Paint()..color = Colors.white..isAntiAlias = true;
-
-    canvas.drawCircle(center, r * 0.055, hubOuter);
-    canvas.drawCircle(center, r * 0.040, hubInner);
+    canvas.drawPath(
+        Path()
+          ..moveTo(tail.dx, tail.dy)
+          ..lineTo(tailBase.dx + p.dx * (tailW / 2),
+              tailBase.dy + p.dy * (tailW / 2))
+          ..lineTo(tailBase.dx - p.dx * (tailW / 2),
+              tailBase.dy - p.dy * (tailW / 2))
+          ..close(),
+        Paint()
+          ..color = color.withOpacity(0.25)
+          ..style = PaintingStyle.fill
+          ..isAntiAlias = true);
+    canvas.drawCircle(center, r * 0.055,
+        Paint()..color = color..isAntiAlias = true);
+    canvas.drawCircle(center, r * 0.040,
+        Paint()..color = Colors.white..isAntiAlias = true);
   }
 
   @override
-  bool shouldRepaint(covariant _NeedlePainter oldDelegate) {
-    return oldDelegate.center != center ||
-        oldDelegate.qiblaDeg != qiblaDeg ||
-        oldDelegate.color != color;
-  }
+  bool shouldRepaint(covariant _NeedlePainter o) =>
+      o.center != center || o.qiblaDeg != qiblaDeg || o.color != color;
 }
 
 class _CompassDialPainter extends CustomPainter {
@@ -607,82 +637,66 @@ class _CompassDialPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final r = dialRadius / 0.86;
-
-    final outerRing = Paint()
-      ..color = ringColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = outerStroke
-      ..isAntiAlias = true;
-
-    final face = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.fill
-      ..isAntiAlias = true;
-
-    canvas.drawCircle(center, dialRadius, face);
-    canvas.drawCircle(center, dialRadius, outerRing);
-
+    canvas.drawCircle(center, dialRadius,
+        Paint()..color = Colors.white..style = PaintingStyle.fill..isAntiAlias = true);
+    canvas.drawCircle(
+        center,
+        dialRadius,
+        Paint()
+          ..color = ringColor
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = outerStroke
+          ..isAntiAlias = true);
     final inner = Paint()
       ..color = Colors.black.withOpacity(0.70)
       ..style = PaintingStyle.stroke
       ..strokeWidth = r * 0.008
       ..isAntiAlias = true;
-
     canvas.drawCircle(center, r * 0.40, inner);
     canvas.drawCircle(center, r * 0.48, inner);
-
     final tickPaint = Paint()
       ..color = tickColor
       ..strokeWidth = r * 0.012
       ..strokeCap = StrokeCap.round
       ..isAntiAlias = true;
-
     final majorPaint = Paint()
       ..color = Colors.black.withOpacity(0.70)
       ..strokeWidth = r * 0.020
       ..strokeCap = StrokeCap.round
       ..isAntiAlias = true;
-
     for (int deg = 0; deg < 360; deg += 3) {
       final isMajor = deg % 45 == 0;
       final isMid = deg % 15 == 0;
-
       final len = isMajor ? r * 0.11 : (isMid ? r * 0.075 : r * 0.045);
-
       final a = (deg - 90) * math.pi / 180.0;
-      final p1 = center + Offset(math.cos(a), math.sin(a)) * (dialRadius - r * 0.05);
-      final p2 = center + Offset(math.cos(a), math.sin(a)) * (dialRadius - r * 0.05 - len);
-
+      final p1 = center +
+          Offset(math.cos(a), math.sin(a)) * (dialRadius - r * 0.05);
+      final p2 = center +
+          Offset(math.cos(a), math.sin(a)) * (dialRadius - r * 0.05 - len);
       canvas.drawLine(p1, p2, isMajor ? majorPaint : tickPaint);
     }
-
     _drawCardinal(canvas, r, 270, 'W');
     _drawCardinal(canvas, r, 0, 'N');
     _drawCardinal(canvas, r, 90, 'E');
     _drawCardinal(canvas, r, 180, 'S');
-
-    final labels = <int>[45, 90, 135, 180, 225, 270, 315, 360];
-    for (final d in labels) {
+    for (final d in <int>[45, 90, 135, 180, 225, 270, 315, 360]) {
       _drawDegreeLabel(canvas, r, d == 360 ? 0 : d, '$d°');
     }
   }
 
   void _drawCardinal(Canvas canvas, double r, int deg, String text) {
     final angle = (deg - 90) * math.pi / 180.0;
-    final pos = center + Offset(math.cos(angle), math.sin(angle)) * (r * 0.56);
-
+    final pos =
+        center + Offset(math.cos(angle), math.sin(angle)) * (r * 0.56);
     final tp = TextPainter(
       text: TextSpan(
-        text: text,
-        style: TextStyle(
-          fontSize: r * 0.16,
-          fontWeight: FontWeight.w900,
-          color: cardinalColor,
-        ),
-      ),
+          text: text,
+          style: TextStyle(
+              fontSize: r * 0.16,
+              fontWeight: FontWeight.w900,
+              color: cardinalColor)),
       textDirection: TextDirection.ltr,
     )..layout();
-
     canvas.save();
     canvas.translate(pos.dx, pos.dy);
     canvas.rotate(angle + math.pi / 2);
@@ -693,38 +707,32 @@ class _CompassDialPainter extends CustomPainter {
 
   void _drawDegreeLabel(Canvas canvas, double r, int deg, String text) {
     final angle = (deg - 90) * math.pi / 180.0;
-    final pos = center + Offset(math.cos(angle), math.sin(angle)) * (r * 0.98);
-
+    final pos =
+        center + Offset(math.cos(angle), math.sin(angle)) * (r * 0.98);
     final tp = TextPainter(
       text: TextSpan(
-        text: text,
-        style: TextStyle(
-          fontSize: r * 0.050,
-          fontWeight: FontWeight.w500,
-          color: degreeColor,
-        ),
-      ),
+          text: text,
+          style: TextStyle(
+              fontSize: r * 0.050,
+              fontWeight: FontWeight.w500,
+              color: degreeColor)),
       textDirection: TextDirection.ltr,
     )..layout();
-
-    final rot = angle + math.pi / 2;
-
     canvas.save();
     canvas.translate(pos.dx, pos.dy);
-    canvas.rotate(rot);
+    canvas.rotate(angle + math.pi / 2);
     canvas.translate(-tp.width / 2, -tp.height / 2);
     tp.paint(canvas, Offset.zero);
     canvas.restore();
   }
 
   @override
-  bool shouldRepaint(covariant _CompassDialPainter oldDelegate) {
-    return oldDelegate.center != center ||
-        oldDelegate.ringColor != ringColor ||
-        oldDelegate.tickColor != tickColor ||
-        oldDelegate.cardinalColor != cardinalColor ||
-        oldDelegate.degreeColor != degreeColor ||
-        oldDelegate.dialRadius != dialRadius ||
-        oldDelegate.outerStroke != outerStroke;
-  }
+  bool shouldRepaint(covariant _CompassDialPainter o) =>
+      o.center != center ||
+      o.ringColor != ringColor ||
+      o.tickColor != tickColor ||
+      o.cardinalColor != cardinalColor ||
+      o.degreeColor != degreeColor ||
+      o.dialRadius != dialRadius ||
+      o.outerStroke != outerStroke;
 }

@@ -214,7 +214,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                         ),
                         _SoundModeOption(
                           label: 'Beep + Azan',
-                          subtitle: 'Bunyi notifikasi diikuti Azan',
+                          subtitle: 'Bunyi notifikasi diikuti Azan Intro',
                           icon: Icons.surround_sound_rounded,
                           mode: AzanSoundMode.beepAndAzan,
                           selected: _soundMode,
