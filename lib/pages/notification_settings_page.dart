@@ -102,10 +102,10 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
       body: _loading
           ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
           : SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
                   Text('Tetapan Notifikasi Waktu Solat',
                       style: TextStyle(
                           fontSize: 22,

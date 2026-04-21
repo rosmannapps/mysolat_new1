@@ -455,24 +455,19 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
 
     final zoneCode = _selectedZone!.code;
     final today = DateTime.now();
-
     PrayerTimes? cached;
 
-    // 1️⃣ Try cached data first
     try {
       cached = await _service.readCachedDay(zoneCode, today);
-
       if (cached != null && mounted) {
         setState(() {
           _times = cached;
           _error = null;
         });
-
         _computeNextPrayer();
       }
     } catch (_) {}
 
-    // 2️⃣ Show loading spinner
     if (mounted) {
       setState(() {
         _loading = true;
@@ -480,41 +475,38 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
     }
 
     try {
-      // 3️⃣ Try fresh fetch
       final result = await _service.fetchDay(zoneCode, today);
-
       if (!mounted) return;
-
       setState(() {
         _times = result;
         _error = null;
       });
-
       _computeNextPrayer();
+      if (_selectedZone != null) {
+        await NotificationService.instance.schedulePrayerNotifications(
+          subuh: result.subuh,
+          zohor: result.zohor,
+          asar: result.asar,
+          maghrib: result.maghrib,
+          isyak: result.isyak,
+          zoneName: _selectedZone!.name,
+        );
+      }
     } catch (e) {
       if (!mounted) return;
-
-      // 4️⃣ If cached data exists, DO NOT show error
       if (cached != null || _times != null) {
-        setState(() {
-          _error = null;
-        });
+        setState(() { _error = null; });
       } else {
-        // Only show error if absolutely no data
-        setState(() {
-          _error = e.toString();
-        });
+        setState(() { _error = e.toString(); });
       }
     } finally {
       if (mounted) {
-        setState(() {
-          _loading = false;
-        });
+        setState(() { _loading = false; });
       }
     }
   }
 
-  void _computeNextPrayer() {
+    void _computeNextPrayer() {
     final pt = _times;
     if (pt == null) return;
 
