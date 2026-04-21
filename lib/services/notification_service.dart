@@ -8,6 +8,9 @@ import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
 import 'prefs_service.dart';
+import 'azan_audio_service.dart';
+
+import 'azan_audio_service.dart';
 
 class NotificationService {
   NotificationService._internal();
@@ -42,6 +45,10 @@ class NotificationService {
 
     await _plugin.initialize(
       const InitializationSettings(android: androidInit, iOS: iosInit),
+      onDidReceiveNotificationResponse: (details) {
+        // User tapped notification — stop Azan
+        AzanAudioService.instance.stop();
+      },
     );
 
     if (Platform.isAndroid) {
