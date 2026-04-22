@@ -10,8 +10,6 @@ import 'package:timezone/timezone.dart' as tz;
 import 'prefs_service.dart';
 import 'azan_audio_service.dart';
 
-import 'azan_audio_service.dart';
-
 class NotificationService {
   NotificationService._internal();
   static final NotificationService instance = NotificationService._internal();
@@ -22,7 +20,7 @@ class NotificationService {
   bool _initialized = false;
 
   static const String _prefKeyEnabled = 'notifications_enabled';
-  static const String _channelId = 'prayer_times_channel_v2';
+  static const String _channelId = 'prayer_times_channel_v3';
   static const String _channelName = 'Notifikasi Waktu Solat';
   static const String _malaysiaTz = 'Asia/Kuala_Lumpur';
 
@@ -45,16 +43,17 @@ class NotificationService {
 
     await _plugin.initialize(
       const InitializationSettings(android: androidInit, iOS: iosInit),
-      onDidReceiveNotificationResponse: (details) {
-        // User tapped notification — stop Azan
+      onDidReceiveNotificationResponse: (NotificationResponse details) {
         AzanAudioService.instance.stop();
       },
     );
 
     if (Platform.isAndroid) {
       final androidPlugin = _plugin
-          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>();
       await androidPlugin?.requestNotificationsPermission();
+
     }
 
     _initialized = true;
@@ -71,7 +70,7 @@ class NotificationService {
   }
 
   NotificationDetails _buildDetails() {
-    final vibrationPattern = Int64List.fromList([0, 800, 200, 800, 200, 800]);
+    final vibrationPattern = Int64List.fromList([0, 1000, 200, 1000, 200, 1000]);
 
     final androidDetails = AndroidNotificationDetails(
       _channelId,
@@ -82,19 +81,22 @@ class NotificationService {
       playSound: true,
       enableVibration: true,
       vibrationPattern: vibrationPattern,
+      enableLights: true,
+      fullScreenIntent: false,
+      visibility: NotificationVisibility.public,
+      category: AndroidNotificationCategory.alarm,
     );
 
     const iosDetails = DarwinNotificationDetails(
       presentAlert: true,
       presentSound: true,
-      presentBadge: false,
+      presentBadge: true,
       interruptionLevel: InterruptionLevel.timeSensitive,
     );
 
     return NotificationDetails(android: androidDetails, iOS: iosDetails);
   }
 
-  // 5 prayers only — Syuruk excluded
   Future<void> schedulePrayerNotifications({
     required String subuh,
     required String zohor,
@@ -108,7 +110,7 @@ class NotificationService {
 
     await _ensureInitialized();
 
-    // Cancel existing prayer notifications
+    // Cancel existing
     for (int id = 1; id <= 5; id++) {
       await _plugin.cancel(id);
     }
