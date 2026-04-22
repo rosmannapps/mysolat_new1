@@ -6,6 +6,7 @@ import 'pages/doa_categories_page.dart';
 import 'pages/tetapan_page.dart';
 import 'theme/app_theme.dart';
 import 'services/prefs_service.dart';
+import 'services/notification_service.dart';
 import 'quran_module/al_quran_app/main.dart' as aq;
 
 Future<void> main() async {
@@ -50,14 +51,127 @@ class _HomeScreenState extends State<HomeScreen> {
   ];
 
   static const String _kWhatsNewShown = 'whats_new_v107_shown';
+  static const String _kNotifPromptShown = 'notif_prompt_shown_v2';
   static const Color _primary = Color(0xFF1F5E3E);
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _showWhatsNewIfNeeded();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _showWhatsNewIfNeeded();
+      await _showNotifPromptIfNeeded();
     });
+  }
+
+  Future<void> _showNotifPromptIfNeeded() async {
+    final shown = PrefsService.instance.getBool(_kNotifPromptShown) ?? false;
+    if (shown || !mounted) return;
+    await PrefsService.instance.setBool(_kNotifPromptShown, true);
+    if (!mounted) return;
+    _showNotifPromptDialog();
+  }
+
+  void _showNotifPromptDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  color: _primary.withOpacity(0.10),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.notifications_active_rounded,
+                  color: _primary,
+                  size: 36,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Notifikasi Waktu Solat',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                  color: _primary,
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Untuk aktifkan notis masuk waktu solat, sila tekan YA atau TIDAK.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 15,
+                  height: 1.5,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _primary,
+                        side: const BorderSide(color: _primary),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text(
+                        'TIDAK',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      onPressed: () async {
+                        Navigator.pop(context);
+                        await NotificationService.instance
+                            .setNotificationsEnabled(true);
+                      },
+                      child: const Text(
+                        'YA',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _showWhatsNewIfNeeded() async {

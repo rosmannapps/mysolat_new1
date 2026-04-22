@@ -143,7 +143,6 @@ class NotificationService {
           _buildDetails(),
           androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
         );
-        debugPrint('✅ Scheduled $name at $scheduled');
       } catch (e) {
         debugPrint('❌ Failed to schedule $name: $e');
       }
