@@ -322,9 +322,11 @@ class _JadualBulananPageState extends State<JadualBulananPage> {
               child: Text(
                 z.name,
                 style: const TextStyle(
-                  fontSize: 18,
+                  fontSize: 13,
                   color: _labelBlue,
                 ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
           )

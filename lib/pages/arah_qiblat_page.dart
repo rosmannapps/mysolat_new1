@@ -1,5 +1,6 @@
 // lib/pages/arah_qiblat_page.dart
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:confetti/confetti.dart';
@@ -83,7 +84,7 @@ class _ArahQiblatPageState extends State<ArahQiblatPage>
     }
 
     // On iOS request location permission which enables compass
-    if (mounted) {
+    if (Platform.isIOS) {
       await Geolocator.requestPermission();
     }
 
