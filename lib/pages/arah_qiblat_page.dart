@@ -70,6 +70,24 @@ class _ArahQiblatPageState extends State<ArahQiblatPage>
     );
 
     _updateQiblaFromGps();
+    _initCompass();
+  }
+
+  Future<void> _initCompass() async {
+    // Check if compass is available
+    if (FlutterCompass.events == null) {
+      if (mounted) {
+        setState(() => _needsCalibrationHint = true);
+      }
+      return;
+    }
+
+    // On iOS request location permission which enables compass
+    if (mounted) {
+      await Geolocator.requestPermission();
+    }
+
+    if (_disposed) return;
 
     _sub = FlutterCompass.events?.listen((event) {
       if (_disposed) return;
