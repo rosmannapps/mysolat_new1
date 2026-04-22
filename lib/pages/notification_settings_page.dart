@@ -61,13 +61,12 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
         await AzanAudioService.instance.playAzan();
         break;
       case AzanSoundMode.beepOnly:
-        await Future.delayed(const Duration(milliseconds: 300));
-        await NotificationService.instance.showTestNotification();
+        await AzanAudioService.instance.playBeep();
         break;
       case AzanSoundMode.beepAndAzan:
+        await AzanAudioService.instance.playBeep();
+        await Future.delayed(const Duration(seconds: 2));
         await AzanAudioService.instance.playAzan();
-        await Future.delayed(const Duration(milliseconds: 300));
-        await NotificationService.instance.showTestNotification();
         break;
     }
   }

@@ -96,6 +96,7 @@ flutter:
     - assets/translations/
     - assets/kaabah.png
     - assets/audio/gendang.aac
+    - assets/audio/beep.wav
 
   fonts:
     - family: AmiriQuran

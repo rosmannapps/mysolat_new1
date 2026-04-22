@@ -1,4 +1,5 @@
 // lib/services/azan_audio_service.dart
+import 'dart:async';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'prefs_service.dart';
@@ -24,6 +25,19 @@ class AzanAudioService {
     if (mode == AzanSoundMode.none) await stop();
   }
 
+  Future<void> playBeep() async {
+    try {
+      _player?.dispose();
+      _player = AudioPlayer();
+      await _player!.setReleaseMode(ReleaseMode.stop);
+      await _player!.setVolume(1.0);
+      await _player!.play(AssetSource('audio/beep.wav'));
+      await _player!.onPlayerComplete.first;
+    } catch (e) {
+      debugPrint('Beep error: \$e');
+    }
+  }
+
   Future<void> playAzan() async {
     if (_isPlaying) return;
     try {
@@ -39,6 +53,7 @@ class AzanAudioService {
       _isPlaying = false;
     }
   }
+
 
   Future<void> stop() async {
     await _player?.stop();
