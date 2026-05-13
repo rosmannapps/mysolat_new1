@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'jakim_http.dart';
 
 class MonthlyPrayerEntry {
   final DateTime date;
@@ -39,7 +39,8 @@ class MonthlyPrayerService {
       },
     );
 
-    final resp = await http.get(uri).timeout(const Duration(seconds: 20));
+    // Use the centralized helper so JAKIM's WAF accepts the request.
+    final resp = await JakimHttp.get(uri, timeout: const Duration(seconds: 20));
 
     if (resp.statusCode >= 300) {
       throw Exception("HTTP ${resp.statusCode}");

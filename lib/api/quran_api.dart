@@ -1,115 +1,69 @@
-// lib/services/quran_api.dart
+// lib/quran_api.dart
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
-class QuranApiVerse {
-  final String verseKey; // e.g. "1:1"
-  final int verseNumber; // e.g. 1
-  final String uthmaniTajweed; // contains <tajweed ...> markup
-  final Map<int, String> translationsById; // translationId -> text
+class QuranVerse {
+  final String verseKey;
+  final String text;
 
-  QuranApiVerse({
+  QuranVerse({
     required this.verseKey,
-    required this.verseNumber,
-    required this.uthmaniTajweed,
-    required this.translationsById,
+    required this.text,
   });
 }
 
 class QuranApi {
-  static const String _base = 'https://api.quran.com/api/v4';
+  static const String baseUrl =
+      'https://api.quran.com/api/v4/quran/verses/uthmani_tajweed';
 
-  /// Fetch a whole surah with tajwid markup + selected translation IDs.
-  /// Uses pagination (max 50 per page).
-  static Future<List<QuranApiVerse>> fetchSurah({
-    required int chapterNumber,
-    required List<int> translationIds,
-  }) async {
-    final verses = <QuranApiVerse>[];
+  static Future<List<QuranVerse>> fetchPage(int pageNumber) async {
+    final uri = Uri.parse(baseUrl).replace(
+      queryParameters: {
+        'page_number': pageNumber.toString(),
+      },
+    );
 
-    int page = 1;
-    const int perPage = 50;
+    final response = await http.get(uri);
 
-    while (true) {
-      final uri = Uri.parse('$_base/verses/by_chapter/$chapterNumber').replace(
-        queryParameters: {
-          // NOTE: these are verse fields
-          'fields': 'text_uthmani_tajweed,verse_key,verse_number',
-          // NOTE: request translations
-          'translations': translationIds.join(','),
-          // translation object fields
-          'translation_fields': 'text,resource_id,verse_key',
-          'page': '$page',
-          'per_page': '$perPage',
-        },
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Failed to fetch Quran page $pageNumber. Status: ${response.statusCode}',
       );
+    }
 
-      final res = await http.get(uri);
-      
-      if (res.statusCode != 200) {
-        throw Exception('API error ${res.statusCode}: ${res.body}');
-      }
+    final decoded = json.decode(response.body);
 
-      final jsonMap = json.decode(res.body) as Map<String, dynamic>;
-      final arr = (jsonMap['verses'] as List).cast<Map<String, dynamic>>();
+    if (decoded is! Map<String, dynamic>) {
+      throw Exception('Invalid Quran API response format.');
+    }
 
-      for (final v in arr) {
-        final verseKey = (v['verse_key'] ?? '').toString();
-        final verseNumber = (v['verse_number'] ?? 0) as int;
-        final tajwid = (v['text_uthmani_tajweed'] ?? '').toString();
+    final versesRaw = decoded['verses'];
 
-        final translations = <int, String>{};
-        final tArr =
-            (v['translations'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+    if (versesRaw == null) {
+      throw Exception(
+        'Quran API response has no verses for page $pageNumber.',
+      );
+    }
 
-        for (final t in tArr) {
-          final rid = (t['resource_id'] ?? 0) as int;
+    if (versesRaw is! List) {
+      throw Exception('Quran verses data is not a list.');
+    }
 
-          // ✅ FIX: translation text key is "text"
-          final rawText = (t['text'] ?? '').toString();
-
-          translations[rid] = _stripBasicHtml(rawText);
-        }
-
-        verses.add(
-          QuranApiVerse(
-            verseKey: verseKey,
-            verseNumber: verseNumber,
-            uthmaniTajweed: tajwid,
-            translationsById: translations,
-          ),
+    return versesRaw.map<QuranVerse>((v) {
+      if (v is! Map<String, dynamic>) {
+        return QuranVerse(
+          verseKey: '',
+          text: '',
         );
       }
 
-      final pagination =
-      (jsonMap['pagination'] as Map?)?.cast<String, dynamic>();
-      final next = pagination?['next_page'];
+      final verseKey = v['verse_key']?.toString() ?? '';
+      final text = v['text_uthmani_tajweed']?.toString() ?? '';
 
-      if (next == null) break;
-      page = next is int ? next : int.tryParse(next.toString()) ?? (page + 1);
-    }
-
-    return verses;
-  }
-
-  /// Quran.com translations sometimes include HTML tags/entities.
-  static String _stripBasicHtml(String input) {
-    var s = input;
-
-    // remove tags like <sup>, <i>, <b>, <span>, etc.
-    s = s.replaceAll(RegExp(r'<[^>]+>'), '');
-
-    // basic HTML entities cleanup (enough for most quran.com translations)
-    s = s
-        .replaceAll('&nbsp;', ' ')
-        .replaceAll('&amp;', '&')
-        .replaceAll('&quot;', '"')
-        .replaceAll('&#39;', "'")
-        .replaceAll('&lt;', '<')
-        .replaceAll('&gt;', '>');
-
-    // collapse whitespace
-    s = s.replaceAll(RegExp(r'\s+'), ' ').trim();
-    return s;
+      return QuranVerse(
+        verseKey: verseKey,
+        text: text,
+      );
+    }).where((verse) => verse.text.trim().isNotEmpty).toList();
   }
 }

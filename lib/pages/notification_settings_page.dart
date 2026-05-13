@@ -1,8 +1,8 @@
 // lib/pages/notification_settings_page.dart
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/notification_service.dart';
-import '../services/azan_audio_service.dart';
 
 class NotificationSettingsPage extends StatefulWidget {
   const NotificationSettingsPage({super.key});
@@ -14,8 +14,33 @@ class NotificationSettingsPage extends StatefulWidget {
 
 class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
   bool _enabled = false;
-  AzanSoundMode _soundMode = AzanSoundMode.azanOnly;
   bool _loading = true;
+
+  // Per-prayer toggles. Keys MUST match NotificationService._prayerKeyMap.
+  final Map<String, bool> _perPrayer = {
+    'subuh': true,
+    'syuruk': true,
+    'zohor': true,
+    'asar': true,
+    'maghrib': true,
+    'isyak': true,
+  };
+
+  static const List<(String, String)> _prayerLabels = [
+    ('subuh', 'Subuh'),
+    ('syuruk', 'Syuruk'),
+    ('zohor', 'Zohor'),
+    ('asar', 'Asar'),
+    ('maghrib', 'Maghrib'),
+    ('isyak', 'Isyak'),
+  ];
+
+  // Currently selected sound id (key into NotificationService.availableSounds).
+  String _selectedSoundId = 'silent';
+
+  // In-app audio player used by the "Uji Bunyi & Getaran" button so the
+  // sound is NOT limited by the iOS notification-banner timeout.
+  final AudioPlayer _testPlayer = AudioPlayer();
 
   @override
   void initState() {
@@ -23,75 +48,127 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
     _loadStatus();
   }
 
+  @override
+  void dispose() {
+    _testPlayer.dispose();
+    super.dispose();
+  }
+
+  /// Play the user's currently-selected sound through the in-app audio
+  /// player (and trigger a vibration) — so testing isn't capped by the
+  /// iOS Time-Sensitive banner duration.
+  Future<void> _playTestSound() async {
+    final sound = await NotificationService.instance.getSelectedSound();
+
+    // Trigger a couple of strong haptic taps to mimic notification vibration.
+    HapticFeedback.heavyImpact();
+    await Future.delayed(const Duration(milliseconds: 150));
+    HapticFeedback.heavyImpact();
+
+    if (!sound.playSound) return; // 'Getar Sahaja' — vibration only.
+
+    String? assetPath;
+    switch (sound.id) {
+      case 'beep':
+        assetPath = 'audio/beep.wav';
+        break;
+      case 'gendang':
+        assetPath = 'audio/gendang.aac';
+        break;
+      default:
+        assetPath = null;
+    }
+    if (assetPath == null) return;
+
+    try {
+      await _testPlayer.stop();
+      await _testPlayer.play(AssetSource(assetPath));
+    } catch (_) {
+      // Ignore playback errors — they don't affect the actual prayer-time
+      // notification scheduling.
+    }
+  }
+
   Future<void> _loadStatus() async {
-    final notif = await NotificationService.instance.getNotificationsEnabled();
-    final mode = await AzanAudioService.instance.getSoundMode();
+    final value = await NotificationService.instance.getNotificationsEnabled();
+
+    final perPrayer = <String, bool>{};
+    for (final p in _prayerLabels) {
+      perPrayer[p.$1] =
+      await NotificationService.instance.getPrayerEnabled(p.$1);
+    }
+
+    final selectedSound =
+    await NotificationService.instance.getSelectedSound();
+
     if (!mounted) return;
     setState(() {
-      _enabled = notif;
-      _soundMode = mode;
+      _enabled = value;
+      _perPrayer
+        ..clear()
+        ..addAll(perPrayer);
+      _selectedSoundId = selectedSound.id;
       _loading = false;
     });
   }
 
+  Future<void> _onSoundChanged(String id) async {
+    setState(() {
+      _selectedSoundId = id;
+    });
+    await NotificationService.instance.setSelectedSound(id);
+    // Immediately preview the chosen sound so the user knows what to expect.
+    // Uses the in-app player (not a notification) to bypass iOS banner timeout.
+    await _playTestSound();
+  }
+
   Future<void> _onToggle(bool value) async {
-    setState(() => _enabled = value);
+    setState(() {
+      _enabled = value;
+    });
     await NotificationService.instance.setNotificationsEnabled(value);
+
     if (value) {
       await NotificationService.instance.showSimpleNotification(
         title: 'Notifikasi Diaktifkan',
         body: 'Anda akan menerima notifikasi waktu solat.',
       );
     }
+    // NOTE: actual rescheduling happens the next time the prayer-times
+    // page loads its data (it calls scheduleForPrayerTimes()).
   }
 
-  Future<void> _onModeChanged(AzanSoundMode mode) async {
-    setState(() => _soundMode = mode);
-    await AzanAudioService.instance.setSoundMode(mode);
-  }
-
-  Future<void> _testSound() async {
-    await HapticFeedback.heavyImpact();
-    await Future.delayed(const Duration(milliseconds: 200));
-    await HapticFeedback.heavyImpact();
-    switch (_soundMode) {
-      case AzanSoundMode.none:
-        break;
-      case AzanSoundMode.azanOnly:
-        await AzanAudioService.instance.playAzan();
-        break;
-      case AzanSoundMode.beepOnly:
-        await AzanAudioService.instance.playBeep();
-        break;
-      case AzanSoundMode.beepAndAzan:
-        await AzanAudioService.instance.playBeep();
-        await Future.delayed(const Duration(seconds: 2));
-        await AzanAudioService.instance.playAzan();
-        break;
-    }
+  Future<void> _onPerPrayerToggle(String key, bool value) async {
+    setState(() {
+      _perPrayer[key] = value;
+    });
+    await NotificationService.instance.setPrayerEnabled(key, value);
   }
 
   @override
   Widget build(BuildContext context) {
     const primary = Color(0xFF2563EB);
-    const azanColor = Color(0xFF1F5E3E);
+
     final scheme = Theme.of(context).colorScheme;
     final isDark = scheme.brightness == Brightness.dark;
+
     final bg = isDark ? const Color(0xFF0B0F14) : const Color(0xFFF5F5F5);
     final appBarBg = isDark ? const Color(0xFF0B0F14) : Colors.white;
     final appBarFg = isDark ? Colors.white : Colors.black87;
+
     final cardBg = isDark ? const Color(0xFF111827) : Colors.white;
     final titleColor = isDark ? Colors.white : Colors.black87;
     final bodyColor = isDark ? Colors.white70 : Colors.black87;
     final subtleColor = isDark ? Colors.white60 : Colors.black54;
-    final borderColor = isDark
-        ? Colors.white.withOpacity(0.08)
-        : Colors.black.withOpacity(0.06);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Notifikasi',
-            style: TextStyle(fontWeight: FontWeight.w700)),
+        title: const Text(
+          'Notifikasi',
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
         centerTitle: true,
         backgroundColor: appBarBg,
         foregroundColor: appBarFg,
@@ -99,246 +176,264 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
       ),
       backgroundColor: bg,
       body: _loading
-          ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+          ? const Center(
+        child: CircularProgressIndicator(strokeWidth: 2),
+      )
           : SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-                  Text('Tetapan Notifikasi Waktu Solat',
-                      style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w900,
-                          color: titleColor)),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Apabila diaktifkan, telefon anda akan mengeluarkan bunyi '
-                        'notifikasi apabila masuk waktu solat.',
-                    style:
-                        TextStyle(fontSize: 14, height: 1.4, color: bodyColor),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Notification toggle
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 14),
-                    decoration: BoxDecoration(
-                      color: cardBg,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: borderColor),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.notifications_active_rounded,
-                            color: primary, size: 30),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Text('Notifikasi Waktu Solat',
-                              style: TextStyle(
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w700,
-                                  color: titleColor)),
-                        ),
-                        Switch(
-                          value: _enabled,
-                          activeColor: Colors.white,
-                          activeTrackColor: primary,
-                          inactiveThumbColor: isDark ? Colors.white70 : null,
-                          inactiveTrackColor: isDark ? Colors.white24 : null,
-                          onChanged: _onToggle,
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // Sound mode selector
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 14),
-                    decoration: BoxDecoration(
-                      color: cardBg,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: borderColor),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(Icons.mosque_rounded,
-                                color: azanColor, size: 26),
-                            const SizedBox(width: 10),
-                            Text('Jenis Bunyi',
-                                style: TextStyle(
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.w700,
-                                    color: titleColor)),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        _SoundModeOption(
-                          label: 'Tiada bunyi',
-                          subtitle: 'Notifikasi senyap sahaja',
-                          icon: Icons.notifications_off_outlined,
-                          mode: AzanSoundMode.none,
-                          selected: _soundMode,
-                          titleColor: titleColor,
-                          accentColor: azanColor,
-                          onTap: () => _onModeChanged(AzanSoundMode.none),
-                        ),
-                        _SoundModeOption(
-                          label: 'Azan sahaja',
-                          subtitle: 'Allahu Akbar apabila masuk waktu',
-                          icon: Icons.record_voice_over_rounded,
-                          mode: AzanSoundMode.azanOnly,
-                          selected: _soundMode,
-                          titleColor: titleColor,
-                          accentColor: azanColor,
-                          onTap: () =>
-                              _onModeChanged(AzanSoundMode.azanOnly),
-                        ),
-                        _SoundModeOption(
-                          label: 'Beep sahaja',
-                          subtitle: 'Bunyi notifikasi biasa',
-                          icon: Icons.notifications_rounded,
-                          mode: AzanSoundMode.beepOnly,
-                          selected: _soundMode,
-                          titleColor: titleColor,
-                          accentColor: azanColor,
-                          onTap: () =>
-                              _onModeChanged(AzanSoundMode.beepOnly),
-                        ),
-                        _SoundModeOption(
-                          label: 'Beep + Azan',
-                          subtitle: 'Bunyi notifikasi diikuti Azan Intro',
-                          icon: Icons.surround_sound_rounded,
-                          mode: AzanSoundMode.beepAndAzan,
-                          selected: _soundMode,
-                          titleColor: titleColor,
-                          accentColor: azanColor,
-                          onTap: () =>
-                              _onModeChanged(AzanSoundMode.beepAndAzan),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  // Test button
-                  if (_enabled)
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: azanColor,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14)),
-                        ),
-                        onPressed: _testSound,
-                        icon: const Icon(Icons.volume_up_rounded),
-                        label: const Text('Uji Bunyi Sekarang',
-                            style: TextStyle(
-                                fontSize: 16, fontWeight: FontWeight.w700)),
-                      ),
-                    )
-                  else
-                    Text('Aktifkan notifikasi untuk menguji bunyi.',
-                        style: TextStyle(fontSize: 13, color: subtleColor)),
-
-                  const SizedBox(height: 20),
-
-                  Text(
-                    'Nota:\n'
-                        '• Anda boleh mengubah tetapan bunyi di sistem telefon.\n'
-                        '• Jika notifikasi tidak keluar, pastikan MySolat dibenarkan '
-                        'menerima notifikasi dalam tetapan sistem.',
-                    style: TextStyle(
-                        fontSize: 13, height: 1.4, color: bodyColor),
-                  ),
-                ],
+            Text(
+              'Tetapan Notifikasi Waktu Solat',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+                color: titleColor,
               ),
             ),
-    );
-  }
-}
+            const SizedBox(height: 8),
+            Text(
+              'Apabila diaktifkan, telefon anda akan mengeluarkan bunyi '
+                  'notifikasi ringkas apabila masuk waktu solat.',
+              style: TextStyle(
+                fontSize: 14,
+                height: 1.4,
+                color: bodyColor,
+              ),
+            ),
+            const SizedBox(height: 24),
 
-class _SoundModeOption extends StatelessWidget {
-  final String label;
-  final String subtitle;
-  final IconData icon;
-  final AzanSoundMode mode;
-  final AzanSoundMode selected;
-  final Color titleColor;
-  final Color accentColor;
-  final VoidCallback onTap;
-
-  const _SoundModeOption({
-    required this.label,
-    required this.subtitle,
-    required this.icon,
-    required this.mode,
-    required this.selected,
-    required this.titleColor,
-    required this.accentColor,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isSelected = mode == selected;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? accentColor.withOpacity(0.08)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isSelected
-                ? accentColor.withOpacity(0.4)
-                : Colors.transparent,
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(icon,
-                size: 22,
-                color:
-                    isSelected ? accentColor : titleColor.withOpacity(0.4)),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            // ── Master switch card ───────────────────────────────
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 14,
+              ),
+              decoration: BoxDecoration(
+                color: cardBg,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                  color: isDark
+                      ? Colors.white.withOpacity(0.08)
+                      : Colors.black.withOpacity(0.06),
+                ),
+              ),
+              child: Row(
                 children: [
-                  Text(label,
+                  const Icon(
+                    Icons.notifications_active_rounded,
+                    color: primary,
+                    size: 30,
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Text(
+                      'Notifikasi Waktu Solat',
                       style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: isSelected ? accentColor : titleColor)),
-                  Text(subtitle,
-                      style: TextStyle(
-                          fontSize: 12,
-                          color: titleColor.withOpacity(0.5))),
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: titleColor,
+                      ),
+                    ),
+                  ),
+                  Switch(
+                    value: _enabled,
+                    activeColor: Colors.white,
+                    activeTrackColor: primary,
+                    inactiveThumbColor: isDark ? Colors.white70 : null,
+                    inactiveTrackColor:
+                    isDark ? Colors.white24 : null,
+                    onChanged: _onToggle,
+                  ),
                 ],
               ),
             ),
-            Icon(
-              isSelected
-                  ? Icons.radio_button_checked_rounded
-                  : Icons.radio_button_off_rounded,
-              color: isSelected
-                  ? accentColor
-                  : titleColor.withOpacity(0.3),
-              size: 22,
+
+            const SizedBox(height: 20),
+
+            // ── Per-prayer toggles (NEW) ─────────────────────────
+            if (_enabled)
+              Container(
+                decoration: BoxDecoration(
+                  color: cardBg,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: isDark
+                        ? Colors.white.withOpacity(0.08)
+                        : Colors.black.withOpacity(0.06),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Pilih Waktu Solat',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: titleColor,
+                          ),
+                        ),
+                      ),
+                    ),
+                    for (int i = 0; i < _prayerLabels.length; i++) ...[
+                      SwitchListTile(
+                        dense: true,
+                        activeColor: Colors.white,
+                        activeTrackColor: primary,
+                        title: Text(
+                          _prayerLabels[i].$2,
+                          style: TextStyle(
+                            color: titleColor,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        value: _perPrayer[_prayerLabels[i].$1] ?? true,
+                        onChanged: (v) =>
+                            _onPerPrayerToggle(_prayerLabels[i].$1, v),
+                      ),
+                      if (i != _prayerLabels.length - 1)
+                        Divider(
+                          height: 1,
+                          color: isDark
+                              ? Colors.white12
+                              : Colors.black12,
+                        ),
+                    ],
+                    const SizedBox(height: 6),
+                  ],
+                ),
+              ),
+
+            if (_enabled) const SizedBox(height: 20),
+
+            // ── SOUND PICKER (NEW) ────────────────────────────────
+            if (_enabled)
+              Container(
+                decoration: BoxDecoration(
+                  color: cardBg,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: isDark
+                        ? Colors.white.withOpacity(0.08)
+                        : Colors.black.withOpacity(0.06),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.music_note_rounded,
+                            color: primary,
+                            size: 22,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Bunyi Notifikasi',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: titleColor,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    for (int i = 0;
+                    i <
+                        NotificationService.availableSounds.length;
+                    i++) ...[
+                      RadioListTile<String>(
+                        dense: true,
+                        activeColor: primary,
+                        value: NotificationService.availableSounds[i].id,
+                        groupValue: _selectedSoundId,
+                        onChanged: (v) {
+                          if (v == null) return;
+                          _onSoundChanged(v);
+                        },
+                        title: Text(
+                          NotificationService.availableSounds[i].label,
+                          style: TextStyle(
+                            color: titleColor,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      if (i !=
+                          NotificationService.availableSounds.length -
+                              1)
+                        Divider(
+                          height: 1,
+                          color: isDark
+                              ? Colors.white12
+                              : Colors.black12,
+                        ),
+                    ],
+                    const SizedBox(height: 6),
+                  ],
+                ),
+              ),
+
+            if (_enabled) const SizedBox(height: 20),
+
+            // ── TEST SOUND BUTTON ────────────────────────────────
+            if (_enabled)
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  onPressed: _playTestSound,
+                  icon: const Icon(Icons.volume_up_rounded),
+                  label: const Text(
+                    'Uji Bunyi & Getaran',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              )
+            else
+              Text(
+                'Aktifkan notifikasi untuk menguji bunyi.',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: subtleColor,
+                ),
+              ),
+
+            const SizedBox(height: 20),
+
+            // ── Info note ────────────────────────────────────────
+            Text(
+              'Nota:\n'
+                  '• Memilih bunyi akan terus memainkan contoh.\n'
+                  '• Jika notifikasi tidak keluar, pastikan MySolat dibenarkan '
+                  'menerima notifikasi dalam tetapan sistem.\n'
+                  '• Buka halaman Waktu Solat selepas mengubah tetapan ini '
+                  'supaya jadual notifikasi dikemas kini dengan bunyi baru.',
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.4,
+                color: bodyColor,
+              ),
             ),
           ],
         ),

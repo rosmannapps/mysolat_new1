@@ -1,4 +1,3 @@
-import '../services/prefs_service.dart';
 // lib/pages/waktu_solat_page.dart
 import 'dart:async';
 import 'dart:ui' show FontFeature;
@@ -8,12 +7,12 @@ import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:hijri_date_time/hijri_date_time.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/prayer_times.dart';
 import '../services/prayer_times_service.dart';
-import '../zones/zone_store.dart';
-import '../services/azan_audio_service.dart';
 import '../services/notification_service.dart';
+import '../zones/zone_store.dart';
 
 class WaktuSolatPage extends StatefulWidget {
   const WaktuSolatPage({super.key});
@@ -46,7 +45,7 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
 
   String _nextName = '';
   DateTime? _nextAt;
-  final _countdownNotifier = ValueNotifier<String>('—');
+  String _countdown = '—';
   Timer? _ticker;
 
   DateTime _lastTickDay = DateTime.now();
@@ -98,41 +97,14 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
   @override
   void dispose() {
     _ticker?.cancel();
-    _countdownNotifier.dispose();
-    AzanAudioService.instance.dispose();
     super.dispose();
-  }
-
-
-  Future<void> _playPrayerSound() async {
-    final mode = await AzanAudioService.instance.getSoundMode();
-    switch (mode) {
-      case AzanSoundMode.none:
-        break;
-      case AzanSoundMode.azanOnly:
-        await AzanAudioService.instance.playAzan();
-        break;
-      case AzanSoundMode.beepOnly:
-        await NotificationService.instance.showSimpleNotification(
-          title: 'Waktu Solat',
-          body: 'Masuk waktu ' + _nextName,
-        );
-        break;
-      case AzanSoundMode.beepAndAzan:
-        await AzanAudioService.instance.playAzan();
-        await NotificationService.instance.showSimpleNotification(
-          title: 'Waktu Solat',
-          body: 'Masuk waktu ' + _nextName,
-        );
-        break;
-    }
   }
 
   Future<void> _saveSelection({
     required String state,
     required String zoneCode,
   }) async {
-    final prefs = PrefsService.instance;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kLastState, state);
     await prefs.setString(_kLastZoneCode, zoneCode);
     await prefs.setBool(_kHasInitializedZone, true);
@@ -325,7 +297,7 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
 
     _stateList = List<String>.from(_zones.states)..sort();
 
-    final prefs = PrefsService.instance;
+    final prefs = await SharedPreferences.getInstance();
     final savedState = prefs.getString(_kLastState);
     final savedZoneCode = prefs.getString(_kLastZoneCode);
     final hasInitialized = prefs.getBool(_kHasInitializedZone) ?? false;
@@ -455,19 +427,33 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
 
     final zoneCode = _selectedZone!.code;
     final today = DateTime.now();
+
     PrayerTimes? cached;
 
+    // 1️⃣ Try cached data first
     try {
       cached = await _service.readCachedDay(zoneCode, today);
+
       if (cached != null && mounted) {
         setState(() {
           _times = cached;
           _error = null;
         });
+
         _computeNextPrayer();
+
+        // 🔔 Re-arm azan schedule from cached times so notifications
+        //    still fire today even if both JAKIM and AlAdhan are down.
+        try {
+          await NotificationService.instance.scheduleForPrayerTimes(
+            date: today,
+            times: cached,
+          );
+        } catch (_) {}
       }
     } catch (_) {}
 
+    // 2️⃣ Show loading spinner
     if (mounted) {
       setState(() {
         _loading = true;
@@ -475,38 +461,51 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
     }
 
     try {
+      // 3️⃣ Try fresh fetch
       final result = await _service.fetchDay(zoneCode, today);
+
       if (!mounted) return;
+
       setState(() {
         _times = result;
         _error = null;
       });
+
       _computeNextPrayer();
-      if (_selectedZone != null) {
-        await NotificationService.instance.schedulePrayerNotifications(
-          subuh: result.subuh,
-          zohor: result.zohor,
-          asar: result.asar,
-          maghrib: result.maghrib,
-          isyak: result.isyak,
-          zoneName: _selectedZone!.name,
+
+      // 🔔 Re-arm today's azan notifications with the freshly fetched
+      //    times. Wrapped in try/catch so a notif failure never breaks
+      //    the prayer-times UI.
+      try {
+        await NotificationService.instance.scheduleForPrayerTimes(
+          date: today,
+          times: result,
         );
-      }
+      } catch (_) {}
     } catch (e) {
       if (!mounted) return;
+
+      // 4️⃣ If cached data exists, DO NOT show error
       if (cached != null || _times != null) {
-        setState(() { _error = null; });
+        setState(() {
+          _error = null;
+        });
       } else {
-        setState(() { _error = e.toString(); });
+        // Only show error if absolutely no data
+        setState(() {
+          _error = e.toString();
+        });
       }
     } finally {
       if (mounted) {
-        setState(() { _loading = false; });
+        setState(() {
+          _loading = false;
+        });
       }
     }
   }
 
-    void _computeNextPrayer() {
+  void _computeNextPrayer() {
     final pt = _times;
     if (pt == null) return;
 
@@ -545,13 +544,13 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
       setState(() {
         _nextName = '';
         _nextAt = null;
-        _countdownNotifier.value = '—';
+        _countdown = '—';
       });
     } else {
       setState(() {
         _nextName = next!.$1;
         _nextAt = next!.$2;
-        _countdownNotifier.value = _formatCountdown(next!.$2, now);
+        _countdown = _formatCountdown(next!.$2, now);
       });
     }
   }
@@ -584,19 +583,18 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
     final secondsLeft = target.difference(now).inSeconds;
 
     if (secondsLeft <= 0) {
-      _playPrayerSound();
       _computeNextPrayer();
 
       final newTarget = _nextAt;
       if (newTarget != null) {
         setState(() {
-          _countdownNotifier.value = _formatCountdown(target, now);
+          _countdown = _formatCountdown(newTarget, DateTime.now());
         });
       }
       return;
     }
 
-    _countdownNotifier.value = _formatCountdown(target, now);
+    setState(() => _countdown = _formatCountdown(target, now));
   }
 
   static const int _hijriOffsetDays = -1;
@@ -684,7 +682,6 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
     await _applyStateChange(picked);
   }
 
-
   Future<void> _openZonePicker() async {
     if (_zoneList.isEmpty) return;
 
@@ -733,10 +730,10 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
 
   @override
   Widget build(BuildContext context) {
-    final ts = MediaQuery.textScalerOf(context).scale(1.0).clamp(1.0, 1.05);
+    final ts = MediaQuery.textScaleFactorOf(context).clamp(1.0, 1.05);
 
     return MediaQuery(
-      data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(ts)),
+      data: MediaQuery.of(context).copyWith(textScaleFactor: ts),
       child: Scaffold(
         backgroundColor: _bg,
         body: SafeArea(
@@ -809,74 +806,54 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
                   label: 'BANDAR',
                   child: _buildZonePill(),
                 ),
-                const SizedBox(height: 10),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(18),
-                      onTap: _loading ? null : _useCurrentLocationNow,
-                      child: Ink(
-                        decoration: BoxDecoration(
-                          color: _primary,
-                          borderRadius: BorderRadius.circular(18),
-                          boxShadow: _softShadow,
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 14,
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.location_on_rounded,
-                                size: 22,
-                                color: _loading
-                                    ? Colors.white54
-                                    : Colors.white,
-                              ),
-                              const SizedBox(width: 10),
-                              Text(
-                                _loading
-                                    ? 'Mencari zon solat...'
-                                    : 'Cari Zon Solat Saya',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w900,
-                                  color: _loading
-                                      ? Colors.white54
-                                      : Colors.white,
-                                  letterSpacing: 0.2,
-                                ),
-                              ),
-                              if (!_loading) ...[
-                                const SizedBox(width: 8),
-                                const Icon(
-                                  Icons.arrow_forward_ios_rounded,
-                                  size: 14,
-                                  color: Colors.white70,
-                                ),
-                              ],
-                              if (_loading) ...[
-                                const SizedBox(width: 10),
-                                const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      Colors.white54,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
+                const SizedBox(height: 14),
+
+                // ── "Cari Zon Solat Saya" — full-width green button
+                //    with red Google-Maps-style pin and chevron.
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _primary,
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor:
+                      _primary.withOpacity(0.55),
+                      disabledForegroundColor:
+                      Colors.white.withOpacity(0.85),
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 16,
+                        horizontal: 20,
                       ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      elevation: 0,
+                    ),
+                    onPressed: _loading ? null : _useCurrentLocationNow,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: const [
+                        // 🔴 Google-Maps-style red pin
+                        Icon(
+                          Icons.location_pin,
+                          color: Color(0xFFE53935),
+                          size: 24,
+                        ),
+                        SizedBox(width: 10),
+                        Text(
+                          'Cari Zon Solat Saya',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        SizedBox(width: 8),
+                        Icon(
+                          Icons.chevron_right,
+                          color: Colors.white,
+                          size: 22,
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -1109,18 +1086,15 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
               child: FittedBox(
                 fit: BoxFit.scaleDown,
                 alignment: Alignment.centerRight,
-                child: ValueListenableBuilder<String>(
-                  valueListenable: _countdownNotifier,
-                  builder: (_, val, __) => Text(
-                    val,
-                    maxLines: 1,
-                    overflow: TextOverflow.visible,
-                    style: const TextStyle(
-                      color: _primary,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w900,
-                      fontFeatures: [FontFeature.tabularFigures()],
-                    ),
+                child: Text(
+                  _countdown,
+                  maxLines: 1,
+                  overflow: TextOverflow.visible,
+                  style: const TextStyle(
+                    color: _primary,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                    fontFeatures: [FontFeature.tabularFigures()],
                   ),
                 ),
               ),
@@ -1144,7 +1118,7 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
 
     return Column(
 
-    mainAxisAlignment: MainAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.start,
       children: items.map((item) {
         final label = item.$1;
         final raw = item.$2;

@@ -1,11 +1,13 @@
-import 'package:mysolat/services/prefs_service.dart';
 // lib/services/prayer_times_service.dart
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/prayer_times.dart';
 import '../models/monthly_prayer_entry.dart';
+import 'aladhan_service.dart';
+import 'jakim_http.dart';
 
 class PrayerTimesService {
   PrayerTimesService({http.Client? client}) : _client = client ?? http.Client();
@@ -16,7 +18,6 @@ class PrayerTimesService {
       'Prayer times are sourced from official JAKIM e-Solat API.\n'
       'Sabah data is temporarily unavailable from the source.';
 
-  // Increased from 12s -> 25s
   static const Duration _timeout = Duration(seconds: 30);
 
   // ===================== CACHE (DAY) =====================
@@ -48,7 +49,7 @@ class PrayerTimesService {
   );
 
   Future<PrayerTimes?> readCachedDay(String zoneCode, DateTime date) async {
-    final prefs = PrefsService.instance;
+    final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_dayCacheKey(zoneCode, date));
     if (raw == null || raw.trim().isEmpty) return null;
 
@@ -69,7 +70,7 @@ class PrayerTimesService {
       DateTime date,
       PrayerTimes times,
       ) async {
-    final prefs = PrefsService.instance;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
       _dayCacheKey(zoneCode, date),
       jsonEncode(_ptToJson(times)),
@@ -288,77 +289,108 @@ class PrayerTimesService {
     return null;
   }
 
+  // Centralized helper so JAKIM's WAF accepts our requests.
   Future<http.Response> _getJson(Uri uri) {
-    return _client
-        .get(
-      uri,
-      headers: const {
-        'Accept': 'application/json',
-      },
-    )
-        .timeout(_timeout);
+    return JakimHttp.get(uri, client: _client, timeout: _timeout);
+  }
+
+  // ===================== SOURCE-SPECIFIC FETCHERS =====================
+
+  Future<PrayerTimes> _fetchFromJakimToday(String zoneCode) async {
+    final uri = _buildUri(period: 'today', zoneCode: zoneCode);
+    final res = await _getJson(uri);
+
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw Exception('JAKIM today HTTP ${res.statusCode}');
+    }
+
+    final decoded = _decodeJsonMap(res.body, context: 'Waktu harian');
+    return _extractPrayerTimesFromDecoded(decoded, zoneCode: zoneCode);
+  }
+
+  Future<PrayerTimes> _fetchFromJakimMonth(
+      String zoneCode,
+      DateTime date,
+      ) async {
+    final uri = _buildUri(
+      period: 'month',
+      zoneCode: zoneCode,
+      month: date.month,
+      year: date.year,
+    );
+    final res = await _getJson(uri);
+
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw Exception('JAKIM month HTTP ${res.statusCode}');
+    }
+
+    final decoded = _decodeJsonMap(res.body, context: 'Jadual bulanan');
+    final times = _extractPrayerTimesFromMonthlyDecoded(
+      decoded,
+      zoneCode: zoneCode,
+      date: date,
+    );
+
+    if (times == null) {
+      throw Exception('JAKIM month: tiada rekod untuk tarikh ini.');
+    }
+    return times;
   }
 
   // ===================== PUBLIC API =====================
 
+  /// Tries (in order):
+  ///   1. Local cache
+  ///   2. JAKIM e-Solat "today" endpoint
+  ///   3. JAKIM e-Solat "month" endpoint
+  ///   4. AlAdhan API (configured to JAKIM calculation method)
+  ///
+  /// Whichever succeeds first wins, and the result is cached.
   Future<PrayerTimes> fetchDay(String zoneCode, DateTime date) async {
     // 1) cache first
     final cached = await readCachedDay(zoneCode, date);
     if (cached != null) return cached;
 
-    // 2) try "today" endpoint first
+    Object? lastError;
+
+    // 2) JAKIM today
     try {
-      final uri = _buildUri(period: 'today', zoneCode: zoneCode);
-      final res = await _getJson(uri);
-
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        final decoded = _decodeJsonMap(res.body, context: 'Waktu harian');
-        final times =
-        _extractPrayerTimesFromDecoded(decoded, zoneCode: zoneCode);
-
-        try {
-          await _writeCachedDay(zoneCode, date, times);
-        } catch (_) {}
-
-        return times;
-      }
-    } catch (_) {
-      // fallback below
-    }
-
-    // 3) fallback to month endpoint
-    try {
-      final uri = _buildUri(
-        period: 'month',
-        zoneCode: zoneCode,
-        month: date.month,
-        year: date.year,
-      );
-      final res = await _getJson(uri);
-
-      if (res.statusCode < 200 || res.statusCode >= 300) {
-        throw Exception('JAKIM status ${res.statusCode}: ${res.reasonPhrase}');
-      }
-
-      final decoded = _decodeJsonMap(res.body, context: 'Jadual bulanan');
-      final times = _extractPrayerTimesFromMonthlyDecoded(
-        decoded,
-        zoneCode: zoneCode,
-        date: date,
-      );
-
-      if (times == null) {
-        throw Exception('Tiada data waktu solat untuk hari ini.');
-      }
-
+      final times = await _fetchFromJakimToday(zoneCode);
       try {
         await _writeCachedDay(zoneCode, date, times);
       } catch (_) {}
-
       return times;
     } catch (e) {
-      throw Exception(e.toString().replaceFirst('Exception: ', ''));
+      lastError = e;
     }
+
+    // 3) JAKIM month
+    try {
+      final times = await _fetchFromJakimMonth(zoneCode, date);
+      try {
+        await _writeCachedDay(zoneCode, date, times);
+      } catch (_) {}
+      return times;
+    } catch (e) {
+      lastError = e;
+    }
+
+    // 4) AlAdhan fallback (silent — UI doesn't need to know)
+    try {
+      final times = await AlAdhanService.fetchDay(zone: zoneCode, date: date);
+      try {
+        await _writeCachedDay(zoneCode, date, times);
+      } catch (_) {}
+      return times;
+    } catch (e) {
+      lastError = e;
+    }
+
+    // All sources failed — surface the most recent error to the UI.
+    throw Exception(
+      lastError?.toString().replaceFirst('Exception: ', '') ??
+          'Tiada sumber waktu solat tersedia.',
+    );
   }
 
   Future<List<MonthlyPrayerEntry>> fetchMonth({
