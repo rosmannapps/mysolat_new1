@@ -23,12 +23,25 @@ class PrayerTimesService {
   // ===================== CACHE (DAY) =====================
 
   static const String _cachePrefixDay = 'pt_day_v1';
+  static const String _yearMetaPrefix = 'pt_year_meta_v1';
+  static const String _freshnessPrefix = 'pt_freshness_v1';
+
+  static const Duration _staleThreshold = Duration(days: 7);
+  static const Duration _yearRefreshCooldown = Duration(days: 14);
+  static const Duration _cacheRetention = Duration(days: 60);
+  static const Duration _interMonthDelay = Duration(milliseconds: 600);
 
   String _ymd(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}${d.month.toString().padLeft(2, '0')}${d.day.toString().padLeft(2, '0')}';
 
   String _dayCacheKey(String zoneCode, DateTime date) =>
       '$_cachePrefixDay:${zoneCode.toUpperCase()}:${_ymd(date)}';
+
+  String _yearMetaKey(String zoneCode, int year) =>
+      '$_yearMetaPrefix:${zoneCode.toUpperCase()}:$year';
+
+  String _freshnessKey(String zoneCode) =>
+      '$_freshnessPrefix:${zoneCode.toUpperCase()}';
 
   Map<String, dynamic> _ptToJson(PrayerTimes t) => <String, dynamic>{
     'subuh': t.subuh,
@@ -349,7 +362,11 @@ class PrayerTimesService {
   Future<PrayerTimes> fetchDay(String zoneCode, DateTime date) async {
     // 1) cache first
     final cached = await readCachedDay(zoneCode, date);
-    if (cached != null) return cached;
+    if (cached != null) {
+      prefetchYearInBackground(zoneCode: zoneCode, year: date.year);
+      await _bootstrapFreshnessIfMissing(zoneCode);
+      return cached;
+    }
 
     Object? lastError;
 
@@ -358,7 +375,9 @@ class PrayerTimesService {
       final times = await _fetchFromJakimToday(zoneCode);
       try {
         await _writeCachedDay(zoneCode, date, times);
+        await _markFreshness(zoneCode, 'JAKIM');
       } catch (_) {}
+      prefetchYearInBackground(zoneCode: zoneCode, year: date.year);
       return times;
     } catch (e) {
       lastError = e;
@@ -369,7 +388,9 @@ class PrayerTimesService {
       final times = await _fetchFromJakimMonth(zoneCode, date);
       try {
         await _writeCachedDay(zoneCode, date, times);
+        await _markFreshness(zoneCode, 'JAKIM');
       } catch (_) {}
+      prefetchYearInBackground(zoneCode: zoneCode, year: date.year);
       return times;
     } catch (e) {
       lastError = e;
@@ -380,7 +401,9 @@ class PrayerTimesService {
       final times = await AlAdhanService.fetchDay(zone: zoneCode, date: date);
       try {
         await _writeCachedDay(zoneCode, date, times);
+        await _markFreshness(zoneCode, 'AlAdhan');
       } catch (_) {}
+      prefetchYearInBackground(zoneCode: zoneCode, year: date.year);
       return times;
     } catch (e) {
       lastError = e;
@@ -427,7 +450,203 @@ class PrayerTimesService {
     return entries;
   }
 
+  // ===================== FRESHNESS TRACKING =====================
+
+  Future<void> _markFreshness(String zoneCode, String source) async {
+    final prefs = await SharedPreferences.getInstance();
+    final payload = jsonEncode({
+      'lastSuccessfulFetch': DateTime.now().toIso8601String(),
+      'source': source,
+    });
+    await prefs.setString(_freshnessKey(zoneCode), payload);
+    // ignore: avoid_print
+    print('🟢 [Cache] _markFreshness wrote for $zoneCode source=$source');
+  }
+
+  Future<void> _bootstrapFreshnessIfMissing(String zoneCode) async {
+    final prefs = await SharedPreferences.getInstance();
+    final existing = prefs.getString(_freshnessKey(zoneCode));
+    // ignore: avoid_print
+    print('🔍 [Cache] bootstrap check for $zoneCode → existing=$existing');
+    if (existing == null) {
+      // ignore: avoid_print
+      print('🔍 [Cache] bootstrap firing for $zoneCode');
+      await _markFreshness(zoneCode, 'JAKIM');
+    }
+  }
+
+  Future<CacheHealth> getCacheHealth(String zoneCode) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_freshnessKey(zoneCode));
+    if (raw == null) {
+      return const CacheHealth(
+        lastFetch: null, source: null, isFresh: false, isStale: true);
+    }
+    try {
+      final map = jsonDecode(raw) as Map<String, dynamic>;
+      final ts = DateTime.tryParse((map['lastSuccessfulFetch'] ?? '').toString());
+      final src = (map['source'] ?? '').toString();
+      if (ts == null) {
+        return const CacheHealth(
+          lastFetch: null, source: null, isFresh: false, isStale: true);
+      }
+      final age = DateTime.now().difference(ts);
+      return CacheHealth(
+        lastFetch: ts,
+        source: src.isEmpty ? null : src,
+        isFresh: age < const Duration(hours: 24),
+        isStale: age > _staleThreshold,
+      );
+    } catch (_) {
+      return const CacheHealth(
+        lastFetch: null, source: null, isFresh: false, isStale: true);
+    }
+  }
+
+  // ===================== YEAR PREFETCH =====================
+
+  Future<int> prefetchYear({
+    required String zoneCode,
+    required int year,
+    bool force = false,
+    void Function(int monthsDone)? onProgress,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final metaKey = _yearMetaKey(zoneCode, year);
+
+    if (!force) {
+      final existing = prefs.getString(metaKey);
+      if (existing != null) {
+        try {
+          final m = jsonDecode(existing) as Map<String, dynamic>;
+          final at = DateTime.tryParse((m['fetchedAt'] ?? '').toString());
+          if (at != null &&
+              DateTime.now().difference(at) < _yearRefreshCooldown) {
+            return (m['entryCount'] as num?)?.toInt() ?? 0;
+          }
+        } catch (_) {}
+      }
+    }
+
+    int totalWritten = 0;
+    for (int month = 1; month <= 12; month++) {
+      try {
+        final entries = await fetchMonth(
+          zoneCode: zoneCode,
+          month: month,
+          year: year,
+        );
+        for (final e in entries) {
+          await _writeCachedDay(
+            zoneCode,
+            e.date,
+            PrayerTimes(
+              subuh: e.subuh,
+              syuruk: e.syuruk,
+              zohor: e.zohor,
+              asar: e.asar,
+              maghrib: e.maghrib,
+              isyak: e.isyak,
+            ),
+          );
+          totalWritten++;
+        }
+        onProgress?.call(month);
+      } catch (_) {}
+      if (month < 12) await Future.delayed(_interMonthDelay);
+    }
+
+    if (totalWritten > 0) {
+      await prefs.setString(metaKey, jsonEncode({
+        'fetchedAt': DateTime.now().toIso8601String(),
+        'entryCount': totalWritten,
+      }));
+      await _markFreshness(zoneCode, 'JAKIM (year prefetch)');
+    }
+
+    return totalWritten;
+  }
+
+  void prefetchYearInBackground({
+    required String zoneCode,
+    required int year,
+  }) {
+    // ignore: unawaited_futures
+    Future(() async {
+      try {
+        await prefetchYear(zoneCode: zoneCode, year: year);
+      } catch (_) {}
+    });
+  }
+
+  // ===================== CACHE HYGIENE =====================
+
+  Future<int> purgeOldCache() async {
+    final prefs = await SharedPreferences.getInstance();
+    final keys = prefs.getKeys();
+    final cutoff = DateTime.now().subtract(_cacheRetention);
+    int purged = 0;
+
+    for (final k in keys) {
+      if (!k.startsWith('$_cachePrefixDay:')) continue;
+      final parts = k.split(':');
+      if (parts.length < 3) continue;
+      final ymd = parts.last;
+      if (ymd.length != 8) continue;
+
+      final y = int.tryParse(ymd.substring(0, 4));
+      final m = int.tryParse(ymd.substring(4, 6));
+      final d = int.tryParse(ymd.substring(6, 8));
+      if (y == null || m == null || d == null) continue;
+
+      try {
+        final entryDate = DateTime(y, m, d);
+        if (entryDate.isBefore(cutoff)) {
+          await prefs.remove(k);
+          purged++;
+        }
+      } catch (_) {}
+    }
+    return purged;
+  }
+
   void dispose() {
     _client.close();
+  }
+}
+
+class CacheHealth {
+  final DateTime? lastFetch;
+  final String? source;
+  final bool isFresh;
+  final bool isStale;
+
+  const CacheHealth({
+    required this.lastFetch,
+    required this.source,
+    required this.isFresh,
+    required this.isStale,
+  });
+
+  String toBahasaLabel() {
+    if (lastFetch == null) return 'Memuat data buat kali pertama…';
+    final age = DateTime.now().difference(lastFetch!);
+    final src = source ?? 'JAKIM';
+
+    String ago;
+    if (age.inMinutes < 1) {
+      ago = 'sebentar tadi';
+    } else if (age.inMinutes < 60) {
+      ago = '${age.inMinutes} minit lalu';
+    } else if (age.inHours < 24) {
+      ago = '${age.inHours} jam lalu';
+    } else if (age.inDays == 1) {
+      ago = 'semalam';
+    } else if (age.inDays < 7) {
+      ago = '${age.inDays} hari lalu';
+    } else {
+      ago = '${age.inDays} hari lalu (perlu dikemaskini)';
+    }
+    return 'Sumber: $src • Dikemas kini $ago';
   }
 }

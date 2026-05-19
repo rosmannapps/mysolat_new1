@@ -39,6 +39,10 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
   bool _booting = true;
   String? _error;
 
+  // Cache freshness snapshot for the selected zone.
+  // Refreshed after every _load(). Drives the small text under prayer times.
+  CacheHealth? _cacheHealth;
+
   late DateTime _today;
   String _gregDisplay = '';
   String _hijriDisplay = '';
@@ -502,7 +506,76 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
           _loading = false;
         });
       }
+      await _refreshCacheHealth();
     }
+  }
+
+  /// Reads the latest cache freshness for the selected zone and stores it
+  /// in state so the UI can render the "Dikemas kini ..." line + stale
+  /// warning. Failures swallowed — UI tolerates null _cacheHealth.
+  Future<void> _refreshCacheHealth() async {
+    final code = _selectedZone?.code;
+    if (code == null || code.isEmpty) return;
+    try {
+      final h = await _service.getCacheHealth(code);
+      // ignore: avoid_print
+      print('🔵 [Page] _refreshCacheHealth got lastFetch=${h.lastFetch} source=${h.source}');
+      if (!mounted) return;
+      setState(() => _cacheHealth = h);
+    } catch (e) {
+      // ignore: avoid_print
+      print('🔴 [Page] _refreshCacheHealth error: $e');
+    }
+  }
+
+  /// Builds the small text line shown beneath the prayer times.
+  /// First load → static "Sumber: Portal e-Solat JAKIM"
+  /// Fresh (<24h) → "Sumber: JAKIM • Dikemas kini X jam lalu" in gold
+  /// Stale (>7 days) → orange text + cloud-off icon
+  Widget _buildFreshnessLabel() {
+    final h = _cacheHealth;
+    if (h == null || h.lastFetch == null) {
+      return Text(
+        'Sumber: Portal e-Solat JAKIM',
+        style: TextStyle(
+          fontSize: _sourceSize,
+          fontStyle: FontStyle.italic,
+          fontWeight: FontWeight.w700,
+          color: _primary.withOpacity(0.70),
+        ),
+      );
+    }
+    final isStale = h.isStale;
+    final color = isStale ? Colors.orange.shade800 : _primary.withOpacity(0.70);
+    final label = h.toBahasaLabel();
+    if (!isStale) {
+      return Text(
+        label,
+        style: TextStyle(
+          fontSize: _sourceSize,
+          fontStyle: FontStyle.italic,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
+      );
+    }
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Icon(Icons.cloud_off_rounded, size: _sourceSize + 2, color: color),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: _sourceSize,
+            fontStyle: FontStyle.italic,
+            fontWeight: FontWeight.w700,
+            color: color,
+          ),
+        ),
+      ],
+    );
   }
 
   void _computeNextPrayer() {
@@ -884,15 +957,7 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
                         child: Center(
                           child: FittedBox(
                             fit: BoxFit.scaleDown,
-                            child: Text(
-                              'Sumber: Portal e-Solat JAKIM',
-                              style: TextStyle(
-                                fontSize: _sourceSize,
-                                fontStyle: FontStyle.italic,
-                                fontWeight: FontWeight.w700,
-                                color: _primary.withOpacity(0.70),
-                              ),
-                            ),
+                            child: _buildFreshnessLabel(),
                           ),
                         ),
                       ),

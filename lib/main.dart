@@ -10,6 +10,7 @@ import 'pages/waktu_solat_page.dart';
 import 'pages/zikir_page.dart';
 import 'pages/doa_categories_page.dart';
 import 'pages/tetapan_page.dart';
+import 'services/prayer_times_service.dart';
 import 'theme/app_theme.dart';
 
 // ✅ Use the Al-Quran module page (gold UI)
@@ -31,6 +32,18 @@ Future<void> main() async {
   } catch (_) {
     // fallback
   }
+
+  // ─── Cache hygiene (fire-and-forget) ───
+  // Removes prayer-time cache entries older than 60 days so SharedPreferences
+  // doesn't grow unboundedly. Runs in background — does not block startup.
+  // ignore: unawaited_futures
+  Future(() async {
+    try {
+      final svc = PrayerTimesService();
+      await svc.purgeOldCache();
+      svc.dispose();
+    } catch (_) {}
+  });
 
   runApp(const MySolatApp());
 }
