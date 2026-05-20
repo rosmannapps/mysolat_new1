@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#1F5E3E" />
+  <title>Sokong MySolat — Terima kasih atas sumbangan anda</title>
+  <meta name="description" content="Sumbangan anda membantu kami mengekalkan dan menambah baik MySolat untuk semua pengguna." />
+
+  <style>
+    :root {
+      --primary: #1F5E3E;
+      --primary-soft: #E9F4EE;
+      --gold: #B68D40;
+      --text: #1D2A23;
+      --muted: #5B6B63;
+      --card: #FFFFFF;
+      --bg: #F5FAF7;
+      --border: #D2E2D7;
+      --shadow: 0 8px 28px rgba(0, 0, 0, 0.06);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                   "Helvetica Neue", Arial, sans-serif;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container {
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 32px 20px 48px;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .logo-mark {
+      width: 48px;
+      height: 48px;
+      background: var(--primary);
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
+      color: white;
+      font-size: 24px;
+    }
+    .logo-text {
+      font-size: 22px;
+      font-weight: 900;
+      color: var(--primary);
+      letter-spacing: -0.3px;
+    }
+
+    h1 {
+      font-size: 28px;
+      font-weight: 900;
+      color: var(--primary);
+      margin: 24px 0 8px;
+      text-align: center;
+      letter-spacing: -0.5px;
+    }
+
+    .lede {
+      text-align: center;
+      color: var(--muted);
+      font-size: 15px;
+      margin: 0 0 28px;
+      line-height: 1.55;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 20px;
+      box-shadow: var(--shadow);
+      margin-bottom: 16px;
+    }
+
+    .method-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--primary);
+      margin-bottom: 12px;
+    }
+    .method-label .badge {
+      background: var(--primary-soft);
+      color: var(--primary);
+      padding: 3px 8px;
+      border-radius: 8px;
+      font-size: 11px;
+    }
+
+    .qr-wrapper {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+
+    /* QR display: clean, big, centered. No fixed dimensions — image scales
+       responsively. No border or background — the cropped Maybank card
+       already has its own white background and rounded corners. */
+    .qr-image {
+      width: 100%;
+      max-width: 340px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .qr-image img {
+      width: 100%;
+      height: auto;
+      display: block;
+      border-radius: 14px;
+    }
+    /* Fallback styling — only kicks in if the <img> tag is replaced with
+       the old placeholder text (i.e., no QR image yet). */
+    .qr-image:not(:has(img)) {
+      width: 220px;
+      height: 220px;
+      background: var(--primary-soft);
+      border: 2px dashed var(--border);
+      border-radius: 14px;
+      color: var(--muted);
+      font-size: 12px;
+      text-align: center;
+      padding: 16px;
+    }
+
+    .qr-caption {
+      font-size: 13px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .payment-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid #ECF2EE;
+    }
+    .payment-row:last-child { border-bottom: none; }
+    .payment-row .label {
+      font-size: 14px;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .payment-row .value {
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--text);
+      font-feature-settings: "tnum";
+    }
+
+    .copy-btn {
+      background: var(--primary-soft);
+      color: var(--primary);
+      border: none;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .copy-btn:hover { background: #D5E9DD; }
+    .copy-btn:active { background: #C0DFCC; }
+
+    .link-btn {
+      display: block;
+      text-align: center;
+      background: var(--primary);
+      color: white;
+      text-decoration: none;
+      padding: 14px 20px;
+      border-radius: 12px;
+      font-weight: 800;
+      font-size: 15px;
+      margin-top: 4px;
+    }
+    .link-btn:hover { opacity: 0.92; }
+
+    .closing {
+      margin-top: 32px;
+      padding: 18px;
+      background: var(--primary-soft);
+      border-radius: 16px;
+      text-align: center;
+      color: var(--primary);
+      font-style: italic;
+      font-weight: 600;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .footer {
+      margin-top: 28px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .footer a {
+      color: var(--primary);
+      text-decoration: none;
+      font-weight: 700;
+    }
+
+    /* Small phones */
+    @media (max-width: 360px) {
+      .container { padding: 24px 16px 40px; }
+      h1 { font-size: 24px; }
+      .qr-image { width: 180px; height: 180px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="container">
+
+    <!-- Logo -->
+    <div class="logo">
+      <div class="logo-mark">🕌</div>
+      <div class="logo-text">MySolat</div>
+    </div>
+
+    <h1>Sokong MySolat</h1>
+
+    <p class="lede">
+      Terima kasih kerana sudi menggunakan MySolat.
+      Sumbangan anda yang ikhlas membantu menampung kos pelayan,
+      yuran Apple/Google Play, serta pembangunan ciri baharu.
+      Setiap sumbangan, walau sekecil mana pun, sangat dihargai. 💚
+    </p>
+
+    <!-- DuitNow QR -->
+    <div class="card">
+      <div class="method-label">
+        <span>DuitNow QR</span>
+        <span class="badge">Disyorkan</span>
+      </div>
+      <div class="qr-wrapper">
+        <div class="qr-image">
+          <img src="duitnow-qr.png" alt="DuitNow QR untuk MySolat — Rosman Bin Daud" />
+        </div>
+        <p class="qr-caption">
+          Imbas QR di atas menggunakan mana-mana app bank tempatan
+          (Maybank, CIMB, BSN, Public Bank, dll.) atau e-wallet
+          (Touch 'n Go, Boost, GrabPay).
+        </p>
+      </div>
+    </div>
+
+    <!-- TouchNGo direct -->
+    <div class="card">
+      <div class="method-label">
+        <span>Touch 'n Go eWallet</span>
+      </div>
+      <div class="payment-row">
+        <span class="label">Nombor telefon</span>
+        <span class="value" id="tng-num">012-488 6000</span>
+      </div>
+      <div class="payment-row">
+        <span class="label">Atas nama</span>
+        <span class="value">Rosman Daud</span>
+      </div>
+      <button class="copy-btn" onclick="copyToClipboard('tng-num', this)" style="margin-top: 12px;">
+        Salin Nombor
+      </button>
+    </div>
+
+    <!-- Bank transfer -->
+    <div class="card">
+      <div class="method-label">
+        <span>Pemindahan Bank</span>
+      </div>
+      <div class="payment-row">
+        <span class="label">Bank</span>
+        <span class="value">Maybank Islamic</span>
+      </div>
+      <div class="payment-row">
+        <span class="label">Nombor akaun</span>
+        <span class="value" id="bank-num">5573 0850 6761</span>
+      </div>
+      <div class="payment-row">
+        <span class="label">Atas nama</span>
+        <span class="value">Rosman Daud</span>
+      </div>
+      <button class="copy-btn" onclick="copyToClipboard('bank-num', this)" style="margin-top: 12px;">
+        Salin Nombor Akaun
+      </button>
+    </div>
+
+    <!-- Closing du'a -->
+    <p class="closing">
+      Semoga Allah membalas kebaikan anda dengan berlipat ganda.
+      <br />
+      Jazakumullahu khairan. 🤲
+    </p>
+
+    <p class="footer">
+      Untuk pertanyaan, hubungi
+      <a href="mailto:rosmann.daud@gmail.com">rosmann.daud@gmail.com</a><br />
+      © MySolat 2026
+    </p>
+
+  </main>
+
+  <script>
+    // Simple copy-to-clipboard helper used by both Salin buttons.
+    function copyToClipboard(id, btn) {
+      const text = document.getElementById(id).innerText;
+      navigator.clipboard.writeText(text).then(() => {
+        const original = btn.innerText;
+        btn.innerText = '✓ Disalin!';
+        setTimeout(() => { btn.innerText = original; }, 1500);
+      }).catch(() => {
+        alert('Tidak dapat menyalin. Sila salin secara manual: ' + text);
+      });
+    }
+  </script>
+</body>
+</html>

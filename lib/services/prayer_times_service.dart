@@ -50,6 +50,7 @@ class PrayerTimesService {
     'asar': t.asar,
     'maghrib': t.maghrib,
     'isyak': t.isyak,
+    'hijri': t.hijri,
   };
 
   PrayerTimes _ptFromJson(Map<String, dynamic> json) => PrayerTimes(
@@ -59,6 +60,7 @@ class PrayerTimesService {
     asar: (json['asar'] ?? '').toString(),
     maghrib: (json['maghrib'] ?? '').toString(),
     isyak: (json['isyak'] ?? '').toString(),
+    hijri: (json['hijri'] ?? '').toString(),
   );
 
   Future<PrayerTimes?> readCachedDay(String zoneCode, DateTime date) async {
@@ -156,6 +158,9 @@ class PrayerTimesService {
     final maghrib = (row['maghrib'] ?? row['Maghrib'] ?? '').toString();
     final isha =
     (row['isha'] ?? row['Isha'] ?? row['isyak'] ?? '').toString();
+    // JAKIM provides hijri as e.g. "1447-12-03" — Malaysia's official
+    // moon-sighting-based calendar. Safer than algorithmic conversion.
+    final hijri = (row['hijri'] ?? row['Hijri'] ?? '').toString().trim();
 
     if (fajr.isEmpty ||
         syuruk.isEmpty ||
@@ -173,6 +178,7 @@ class PrayerTimesService {
       asar: asr,
       maghrib: maghrib,
       isyak: isha,
+      hijri: hijri,
     );
   }
 
@@ -359,13 +365,22 @@ class PrayerTimesService {
   ///   4. AlAdhan API (configured to JAKIM calculation method)
   ///
   /// Whichever succeeds first wins, and the result is cached.
-  Future<PrayerTimes> fetchDay(String zoneCode, DateTime date) async {
-    // 1) cache first
-    final cached = await readCachedDay(zoneCode, date);
-    if (cached != null) {
-      prefetchYearInBackground(zoneCode: zoneCode, year: date.year);
-      await _bootstrapFreshnessIfMissing(zoneCode);
-      return cached;
+  Future<PrayerTimes> fetchDay(
+    String zoneCode,
+    DateTime date, {
+    bool forceRefresh = false,
+  }) async {
+    // 1) cache first — UNLESS the caller explicitly asked for a fresh hit.
+    // forceRefresh=true is used when the user taps the location pin and
+    // expects the freshness timer to reset to 0. Skipping cache means the
+    // JAKIM call below runs and _markFreshness writes "now" on success.
+    if (!forceRefresh) {
+      final cached = await readCachedDay(zoneCode, date);
+      if (cached != null) {
+        prefetchYearInBackground(zoneCode: zoneCode, year: date.year);
+        await _bootstrapFreshnessIfMissing(zoneCode);
+        return cached;
+      }
     }
 
     Object? lastError;
@@ -459,18 +474,11 @@ class PrayerTimesService {
       'source': source,
     });
     await prefs.setString(_freshnessKey(zoneCode), payload);
-    // ignore: avoid_print
-    print('🟢 [Cache] _markFreshness wrote for $zoneCode source=$source');
   }
 
   Future<void> _bootstrapFreshnessIfMissing(String zoneCode) async {
     final prefs = await SharedPreferences.getInstance();
-    final existing = prefs.getString(_freshnessKey(zoneCode));
-    // ignore: avoid_print
-    print('🔍 [Cache] bootstrap check for $zoneCode → existing=$existing');
-    if (existing == null) {
-      // ignore: avoid_print
-      print('🔍 [Cache] bootstrap firing for $zoneCode');
+    if (prefs.getString(_freshnessKey(zoneCode)) == null) {
       await _markFreshness(zoneCode, 'JAKIM');
     }
   }
@@ -547,6 +555,7 @@ class PrayerTimesService {
               asar: e.asar,
               maghrib: e.maghrib,
               isyak: e.isyak,
+              hijri: e.hijri,
             ),
           );
           totalWritten++;
@@ -561,7 +570,7 @@ class PrayerTimesService {
         'fetchedAt': DateTime.now().toIso8601String(),
         'entryCount': totalWritten,
       }));
-      await _markFreshness(zoneCode, 'JAKIM (year prefetch)');
+      await _markFreshness(zoneCode, 'JAKIM');
     }
 
     return totalWritten;

@@ -26,6 +26,10 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
   final ZoneStore _zones = ZoneStore();
 
   static const String _kLastState = 'last_state';
+  // Persists the user's actual town/locality (e.g. "Kepala Batas") captured
+  // from GPS via "Cari Zon Solat Saya". Used only for display in the BANDAR
+  // field — prayer times still come from the underlying JAKIM zone code.
+  static const String _kDetectedTownName = 'detected_town_name';
   static const String _kLastZoneCode = 'last_zone_code';
   static const String _kHasInitializedZone = 'has_initialized_zone';
 
@@ -42,6 +46,12 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
   // Cache freshness snapshot for the selected zone.
   // Refreshed after every _load(). Drives the small text under prayer times.
   CacheHealth? _cacheHealth;
+
+  // The user's actual town/locality captured from GPS detection
+  // (e.g. "Kepala Batas"). When non-null, the BANDAR field displays this
+  // instead of the JAKIM zone name. Cleared when user manually changes
+  // state or zone (because they've left "I'm here" mode).
+  String? _detectedTownName;
 
   late DateTime _today;
   String _gregDisplay = '';
@@ -112,6 +122,19 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
     await prefs.setString(_kLastState, state);
     await prefs.setString(_kLastZoneCode, zoneCode);
     await prefs.setBool(_kHasInitializedZone, true);
+  }
+
+  /// Persists the user's detected town name and updates state in one step.
+  /// Pass null to clear (e.g. when user manually changes zone/state).
+  Future<void> _setDetectedTownName(String? town) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (town == null || town.trim().isEmpty) {
+      await prefs.remove(_kDetectedTownName);
+      if (mounted) setState(() => _detectedTownName = null);
+    } else {
+      await prefs.setString(_kDetectedTownName, town);
+      if (mounted) setState(() => _detectedTownName = town);
+    }
   }
 
   bool _forceSingleZone(String state) => _singleZoneStates.contains(state);
@@ -251,7 +274,8 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
     return null;
   }
 
-  Future<({String state, Zone zone})> _detectZoneFromCurrentLocation() async {
+  Future<({String state, Zone zone, String? townName})>
+      _detectZoneFromCurrentLocation() async {
     final pos = await _getPrecisePosition();
     final lat = pos.latitude;
     final lon = pos.longitude;
@@ -291,21 +315,61 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
 
     final finalZone = picked ?? _pickDefaultZoneFor(detectedState, zones);
 
-    return (state: detectedState, zone: finalZone);
+    // Personalized display name: prefer the most specific real-world
+    // place name available. Falls through if everything is empty so the
+    // BANDAR field falls back to the JAKIM zone name.
+    final townName = _pickTownDisplayName(pm);
+
+    return (state: detectedState, zone: finalZone, townName: townName);
+  }
+
+  /// Walks the placemark fields from most specific to most general to find
+  /// a human-readable town/locality name to display.
+  ///
+  /// Priority is **most specific first** so users feel close to their actual
+  /// location, not lumped into a larger administrative area:
+  ///   1. subLocality      — neighbourhood, e.g. "Sungai Dua"
+  ///   2. locality         — city/town, e.g. "Butterworth"
+  ///   3. subAdministrativeArea — district, e.g. "Seberang Perai Tengah"
+  ///
+  /// Returns null if nothing usable is available — caller falls back to
+  /// the JAKIM zone name.
+  String? _pickTownDisplayName(Placemark? pm) {
+    if (pm == null) return null;
+    final candidates = <String?>[
+      pm.subLocality,           // most specific — e.g. "Sungai Dua"
+      pm.locality,              // city/town    — e.g. "Butterworth"
+      pm.subAdministrativeArea, // district     — e.g. "Seberang Perai Tengah"
+    ];
+    for (final c in candidates) {
+      final t = c?.trim() ?? '';
+      if (t.isEmpty) continue;
+      // Guard against pathological placemark values like an entire POI
+      // name or address (rare, but iOS does this occasionally).
+      if (t.length > 40) continue;
+      return t;
+    }
+    return null;
   }
 
   Future<void> _init() async {
     _today = DateTime.now();
     _gregDisplay = DateFormat('EEEE, d MMMM yyyy', 'ms_MY').format(_today);
-    _hijriDisplay = _buildHijriDate(_today);
+    // _times isn't loaded yet — falls back to algorithmic. Will be replaced
+    // with JAKIM hijri as soon as _load() finishes.
+    _updateHijriDisplay();
 
     _stateList = List<String>.from(_zones.states)..sort();
 
     final prefs = await SharedPreferences.getInstance();
     final savedState = prefs.getString(_kLastState);
     final savedZoneCode = prefs.getString(_kLastZoneCode);
-    final hasInitialized = prefs.getBool(_kHasInitializedZone) ?? false;
+    // Restore the personalized town label from the last GPS detection so
+    // the big label shows something immediately on cold start.
+    _detectedTownName = prefs.getString(_kDetectedTownName);
 
+    // STEP 1: Restore cached location instantly (no GPS yet) so UI is never
+    // blank while we wait for satellites.
     if (savedState != null &&
         _stateList.contains(savedState) &&
         savedZoneCode != null &&
@@ -317,50 +381,65 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
         orElse: () => _pickDefaultZoneFor(_selectedState!, _zoneList),
       );
     } else {
-      ({String state, Zone zone})? autoPick;
-      if (!hasInitialized) {
-        try {
-          autoPick = await _detectZoneFromCurrentLocation();
-        } catch (_) {
-          autoPick = null;
-        }
-      }
-
-      if (autoPick != null && _stateList.contains(autoPick.state)) {
-        _selectedState = autoPick.state;
+      // First-ever launch: no saved zone. Fall back to Pulau Pinang so the
+      // prayer-times list isn't empty — GPS refresh below will replace it.
+      final fallbackState = _stateList.contains('Pulau Pinang')
+          ? 'Pulau Pinang'
+          : (_stateList.isNotEmpty ? _stateList.first : null);
+      _selectedState = fallbackState;
+      if (_selectedState != null) {
         _zoneList = _zones.zonesIn(_selectedState!);
-        _selectedZone = _zoneList.firstWhere(
-              (z) => z.code == autoPick!.zone.code,
-          orElse: () => _pickDefaultZoneFor(_selectedState!, _zoneList),
-        );
-      } else {
-        final fallbackState = _stateList.contains('Pulau Pinang')
-            ? 'Pulau Pinang'
-            : (_stateList.isNotEmpty ? _stateList.first : null);
-
-        _selectedState = fallbackState;
-        if (_selectedState != null) {
-          _zoneList = _zones.zonesIn(_selectedState!);
-          _selectedZone = _pickDefaultZoneFor(_selectedState!, _zoneList);
-        }
-      }
-
-      if (_selectedState != null &&
-          _selectedZone != null &&
-          _selectedZone!.code.isNotEmpty) {
-        await _saveSelection(
-          state: _selectedState!,
-          zoneCode: _selectedZone!.code,
-        );
-      } else {
-        await prefs.setBool(_kHasInitializedZone, true);
+        _selectedZone = _pickDefaultZoneFor(_selectedState!, _zoneList);
       }
     }
 
     if (!mounted) return;
     setState(() => _booting = false);
 
+    // STEP 2: Show cached prayer times immediately.
     await _load();
+
+    // STEP 3: Fire GPS detection in the background to refresh location.
+    // Silent failures — user can tap Lokasi Saya to manually retry.
+    _refreshLocationInBackground();
+  }
+
+  /// Fire-and-forget GPS detection that runs after the UI has shown cached
+  /// data. If detection succeeds AND the zone or town has changed, updates
+  /// state and reloads prayer times.
+  void _refreshLocationInBackground() {
+    // ignore: unawaited_futures
+    Future(() async {
+      try {
+        final autoPick = await _detectZoneFromCurrentLocation();
+        if (!mounted) return;
+
+        final zoneChanged = autoPick.zone.code != _selectedZone?.code;
+        final townChanged = autoPick.townName != _detectedTownName;
+
+        if (zoneChanged) {
+          _selectedState = autoPick.state;
+          _zoneList = _zones.zonesIn(_selectedState!);
+          _selectedZone = _zoneList.firstWhere(
+                (z) => z.code == autoPick.zone.code,
+            orElse: () => _pickDefaultZoneFor(_selectedState!, _zoneList),
+          );
+          await _saveSelection(
+            state: _selectedState!,
+            zoneCode: _selectedZone!.code,
+          );
+          await _setDetectedTownName(autoPick.townName);
+          if (mounted) setState(() {});
+          await _load();
+        } else if (townChanged) {
+          // Same zone (no need to refetch prayer times) but town label
+          // differs — just update the displayed name.
+          await _setDetectedTownName(autoPick.townName);
+        }
+      } catch (_) {
+        // Silent — user has Lokasi Saya button to retry explicitly.
+      }
+    });
   }
 
   Future<void> _applyStateChange(String newState) async {
@@ -414,10 +493,17 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
         state: _selectedState!,
         zoneCode: _selectedZone!.code,
       );
+      // Persist the detected town name (e.g. "Changlun") so the prominent
+      // label updates and survives app restarts.
+      await _setDetectedTownName(autoPick.townName);
       if (!mounted) return;
 
       setState(() {});
-      await _load();
+      // User explicitly tapped the pin → force a fresh JAKIM hit so the
+      // freshness timer resets to 0. If JAKIM is unreachable, _load falls
+      // back through its normal cache/AlAdhan chain and the timer keeps
+      // its previous value (honest about staleness).
+      await _load(forceRefresh: true);
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
@@ -426,7 +512,7 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
     }
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool forceRefresh = false}) async {
     if (_selectedZone == null || _selectedZone!.code.isEmpty) return;
 
     final zoneCode = _selectedZone!.code;
@@ -442,6 +528,7 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
         setState(() {
           _times = cached;
           _error = null;
+          _updateHijriDisplay();
         });
 
         _computeNextPrayer();
@@ -466,13 +553,18 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
 
     try {
       // 3️⃣ Try fresh fetch
-      final result = await _service.fetchDay(zoneCode, today);
+      final result = await _service.fetchDay(
+        zoneCode,
+        today,
+        forceRefresh: forceRefresh,
+      );
 
       if (!mounted) return;
 
       setState(() {
         _times = result;
         _error = null;
+        _updateHijriDisplay();
       });
 
       _computeNextPrayer();
@@ -518,13 +610,10 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
     if (code == null || code.isEmpty) return;
     try {
       final h = await _service.getCacheHealth(code);
-      // ignore: avoid_print
-      print('🔵 [Page] _refreshCacheHealth got lastFetch=${h.lastFetch} source=${h.source}');
       if (!mounted) return;
       setState(() => _cacheHealth = h);
-    } catch (e) {
-      // ignore: avoid_print
-      print('🔴 [Page] _refreshCacheHealth error: $e');
+    } catch (_) {
+      // Ignore — UI tolerates a null _cacheHealth.
     }
   }
 
@@ -640,7 +729,9 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
       _lastTickDay = now;
       _today = now;
       _gregDisplay = DateFormat('EEEE, d MMMM yyyy', 'ms_MY').format(_today);
-      _hijriDisplay = _buildHijriDate(_today);
+      // Algorithmic fallback shows briefly; _load() will replace with
+      // JAKIM hijri for the new day once times come in.
+      _updateHijriDisplay();
       _load();
       _computeNextPrayer();
       return;
@@ -672,30 +763,55 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
 
   static const int _hijriOffsetDays = -1;
 
+  /// JAKIM Hijri month names in Bahasa Malaysia, index 1..12.
+  static const List<String> _hijriMonthNames = <String>[
+    '',
+    'Muharam',
+    'Safar',
+    'Rabiulawal',
+    'Rabiulakhir',
+    'Jamadilawal',
+    'Jamadilakhir',
+    'Rejab',
+    'Syaaban',
+    'Ramadan',
+    'Syawal',
+    'Zulkaedah',
+    'Zulhijjah',
+  ];
+
+  /// Formats a JAKIM-style Hijri string (e.g. "1447-12-03") into Bahasa
+  /// Malaysia ("3 Zulhijjah 1447"). Returns null if the input is empty or
+  /// can't be parsed — caller should fall back to the algorithmic builder.
+  String? _formatJakimHijri(String raw) {
+    if (raw.isEmpty) return null;
+    // Expected format: yyyy-mm-dd (sometimes with extra parts)
+    final parts = raw.trim().split('-');
+    if (parts.length < 3) return null;
+    final y = int.tryParse(parts[0]);
+    final m = int.tryParse(parts[1]);
+    final d = int.tryParse(parts[2].split(' ').first);
+    if (y == null || m == null || d == null) return null;
+    if (m < 1 || m > 12) return null;
+    return '$d ${_hijriMonthNames[m]} $y';
+  }
+
+  /// Algorithmic Hijri builder — fallback when JAKIM doesn't give us one
+  /// (older cache, AlAdhan fallback, etc.). Always returns something.
   String _buildHijriDate(DateTime date) {
     final adjusted = date.add(const Duration(days: _hijriOffsetDays));
     final hijri = HijriDateTime.fromGregorian(adjusted);
-
-    const monthNames = <String>[
-      '',
-      'Muharam',
-      'Safar',
-      'Rabiulawal',
-      'Rabiulakhir',
-      'Jamadilawal',
-      'Jamadilakhir',
-      'Rejab',
-      'Syaaban',
-      'Ramadan',
-      'Syawal',
-      'Zulkaedah',
-      'Zulhijjah',
-    ];
-
     final monthName =
-    (hijri.month >= 1 && hijri.month <= 12) ? monthNames[hijri.month] : '';
-
+        (hijri.month >= 1 && hijri.month <= 12) ? _hijriMonthNames[hijri.month] : '';
     return '${hijri.day} $monthName ${hijri.year}';
+  }
+
+  /// Single source of truth for the Hijri display: prefers JAKIM's
+  /// official moon-sighted date from [_times.hijri], falls back to the
+  /// algorithmic builder. Call this whenever [_times] or [_today] changes.
+  void _updateHijriDisplay() {
+    final jakim = _formatJakimHijri(_times?.hijri ?? '');
+    _hijriDisplay = jakim ?? _buildHijriDate(_today);
   }
 
   DateTime? _parseToday(String s) {
@@ -869,68 +985,82 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 8),
-                _labelPillRow(
-                  label: 'NEGERI',
-                  child: _buildStatePill(),
-                ),
-                const SizedBox(height: 8),
-                _labelPillRow(
-                  label: 'BANDAR',
-                  child: _buildZonePill(),
-                ),
                 const SizedBox(height: 14),
 
-                // ── "Cari Zon Solat Saya" — full-width green button
-                //    with red Google-Maps-style pin and chevron.
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _primary,
-                      foregroundColor: Colors.white,
-                      disabledBackgroundColor:
-                      _primary.withOpacity(0.55),
-                      disabledForegroundColor:
-                      Colors.white.withOpacity(0.85),
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 16,
-                        horizontal: 20,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      elevation: 0,
-                    ),
+                // ── Tappable location pin (compact) ──
+                // Replaces the old big "Lokasi Saya" button — universal
+                // map-pin icon, no label needed. Tap to re-detect location.
+                Center(
+                  child: IconButton(
+                    iconSize: 56,
+                    padding: const EdgeInsets.all(8),
+                    constraints: const BoxConstraints(),
+                    tooltip: 'Lokasi Saya',
                     onPressed: _loading ? null : _useCurrentLocationNow,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: const [
-                        // 🔴 Google-Maps-style red pin
-                        Icon(
-                          Icons.location_pin,
-                          color: Color(0xFFE53935),
-                          size: 24,
-                        ),
-                        SizedBox(width: 10),
-                        Text(
-                          'Cari Zon Solat Saya',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        SizedBox(width: 8),
-                        Icon(
-                          Icons.chevron_right,
-                          color: Colors.white,
-                          size: 22,
-                        ),
-                      ],
+                    icon: const Icon(
+                      Icons.location_pin,
+                      color: Color(0xFFE53935),
                     ),
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 2),
+
+                // ── Tap hint under pin ──
+                // So users know the pin is interactive, not just decoration.
+                Center(
+                  child: Text(
+                    'Tekan pin untuk kemaskini lokasi',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontStyle: FontStyle.italic,
+                      fontWeight: FontWeight.w600,
+                      color: _muted,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+
+                // ── Prominent town name display ──
+                // Driven by _detectedTownName, captured from GPS placemark.
+                // Falls back to a hint text before the first detection.
+                Center(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      _detectedTownName ?? 'Tekan pin untuk bermula',
+                      style: TextStyle(
+                        fontSize: _detectedTownName != null ? 28 : 16,
+                        fontWeight: FontWeight.w900,
+                        color: _detectedTownName != null
+                            ? _primary
+                            : _muted,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                  ),
+                ),
+
+                // ── Small JAKIM zone subtitle (transparency) ──
+                // Shows users which JAKIM zone the prayer times come from.
+                // e.g. "(Zon: KDH01)" for Changlun, "(Zon: PNG01)" for
+                // Kepala Batas. Hidden until we have a resolved zone.
+                if (_selectedZone != null &&
+                    _selectedZone!.code.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Center(
+                      child: Text(
+                        '(Zon: ${_selectedZone!.code})',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          fontStyle: FontStyle.italic,
+                          color: _primary.withOpacity(0.55),
+                        ),
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 14),
                 if (_nextAt != null && _nextName.isNotEmpty)
                   _buildNextBannerIOS(),
                 if (_error != null) ...[

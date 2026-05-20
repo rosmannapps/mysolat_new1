@@ -1,6 +1,7 @@
 // lib/pages/tetapan_page.dart
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'about_page.dart';
 import 'arah_qiblat_page.dart';
@@ -162,6 +163,21 @@ class TetapanPage extends StatelessWidget {
                       );
                     },
                     childCount: items.length,
+                  ),
+                ),
+              ),
+
+              // ── "Sokong MySolat" donation card ──
+              // Tappable full-width card that opens https://rosmannapps.github.io/sokong/
+              // in the user's default browser. Payment processing happens
+              // entirely on the external website so neither Apple nor Google
+              // takes a cut.
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                sliver: SliverToBoxAdapter(
+                  child: _SokongCard(
+                    accent: accent,
+                    onTap: () => _openSokongPage(context),
                   ),
                 ),
               ),
@@ -391,6 +407,114 @@ class _SettingCard extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Opens the MySolat donation page in the user's default browser.
+/// Uses LaunchMode.externalApplication so the URL opens in Safari/Chrome
+/// instead of an in-app webview — this keeps Apple's reviewers happy
+/// because no payment processing happens inside the app itself.
+Future<void> _openSokongPage(BuildContext context) async {
+  final uri = Uri.parse('https://rosmannapps.github.io/sokong/');
+  try {
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok && context.mounted) {
+      _showSokongError(context);
+    }
+  } catch (_) {
+    if (context.mounted) _showSokongError(context);
+  }
+}
+
+void _showSokongError(BuildContext context) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(
+      content: Text(
+        'Tidak dapat membuka pelayar. Sila lawati rosmannapps.github.io/sokong secara manual.',
+      ),
+      duration: Duration(seconds: 4),
+    ),
+  );
+}
+
+/// Full-width donation card shown between the settings grid and the bottom
+/// tip card. Friendly green styling, heart icon, BM copy that frames the
+/// donation as voluntary support rather than payment.
+class _SokongCard extends StatelessWidget {
+  final Color accent;
+  final VoidCallback onTap;
+
+  const _SokongCard({
+    required this.accent,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
+        child: Ink(
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+          decoration: BoxDecoration(
+            color: accent.withOpacity(0.10),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: accent.withOpacity(0.25)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: accent.withOpacity(0.18),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  Icons.favorite_rounded,
+                  color: accent,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Sokong MySolat',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                        color: accent,
+                        height: 1.15,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Sumbangan anda membantu kami mengekalkan dan menambah baik aplikasi ini.',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black.withOpacity(0.65),
+                        height: 1.25,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: accent.withOpacity(0.75),
+              ),
+            ],
           ),
         ),
       ),

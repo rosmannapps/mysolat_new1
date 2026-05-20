@@ -9,6 +9,8 @@ class MonthlyPrayerEntry {
   final String asar;
   final String maghrib;
   final String isyak;
+  /// JAKIM-provided Hijri date string, e.g. "1447-12-03". Empty if missing.
+  final String hijri;
 
   const MonthlyPrayerEntry({
     required this.date,
@@ -18,6 +20,7 @@ class MonthlyPrayerEntry {
     required this.asar,
     required this.maghrib,
     required this.isyak,
+    this.hijri = '',
   });
 
   /// Build from a single JAKIM JSON object.
@@ -43,6 +46,7 @@ class MonthlyPrayerEntry {
       asar: pick('asr', 'Asr'),
       maghrib: pick('maghrib', 'Maghrib'),
       isyak: pick('isha', 'Isha'),
+      hijri: (json['hijri'] ?? '').toString().trim(),
     );
   }
 

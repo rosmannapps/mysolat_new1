@@ -9,6 +9,10 @@ class PrayerTimes {
   final String asar;
   final String maghrib;
   final String isyak;
+  /// JAKIM-provided Hijri date in ISO-like format, e.g. "1447-12-03".
+  /// Empty when not available (e.g. cache from an older app version, or
+  /// fallback to AlAdhan). UI should fall back to algorithmic conversion.
+  final String hijri;
 
   const PrayerTimes({
     required this.subuh,
@@ -17,6 +21,7 @@ class PrayerTimes {
     required this.asar,
     required this.maghrib,
     required this.isyak,
+    this.hijri = '',
   });
 
   /// Safe empty fallback (for cache miss / decode fail).
@@ -27,6 +32,7 @@ class PrayerTimes {
     asar: '',
     maghrib: '',
     isyak: '',
+    hijri: '',
   );
 
   /// Create from a JSON map.
@@ -47,6 +53,7 @@ class PrayerTimes {
       asar: pick(['asar', 'asr']),
       maghrib: pick(['maghrib']),
       isyak: pick(['isyak', 'isha']),
+      hijri: pick(['hijri']),
     );
   }
 
@@ -58,6 +65,7 @@ class PrayerTimes {
     'asar': asar,
     'maghrib': maghrib,
     'isyak': isyak,
+    'hijri': hijri,
   };
 
   /// Encode to a String (ideal for SharedPreferences).
