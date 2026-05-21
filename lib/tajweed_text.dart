@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'tajwid/tajwid_parser.dart';
+
 const Map<String, Color> kTajweedColors = {
   'ham_wasl': Color(0xFF9AA0A6),
   'slnt': Color(0xFF9AA0A6),
@@ -23,50 +25,27 @@ const Map<String, Color> kTajweedColors = {
   'idgh_mus': Color(0xFFA1A1A1),
 
   'ghn': Color(0xFFFF7E1E),
+
+  // verse number
+  'end': Color(0xFF9E9E9E),
 };
 
-List<InlineSpan> parseTajweed(String input) {
-  input = input.replaceAll(RegExp(r'<span class=end>.*?</span>'), '');
+List<InlineSpan> buildTajweedSpans({
+  required String input,
+  required Color baseColor,
+}) {
+  final parsed = TajweedParser.parse(input);
 
-  final spans = <InlineSpan>[];
+  return parsed.spans.map((s) {
+    final color = s.rule == null
+        ? baseColor
+        : (kTajweedColors[s.rule!] ?? baseColor);
 
-  final regex = RegExp(
-    r'<tajweed class="?([\w_]+)"?>(.*?)</tajweed>',
-    dotAll: true,
-  );
-
-  int currentIndex = 0;
-
-  for (final match in regex.allMatches(input)) {
-    if (match.start > currentIndex) {
-      final normalText = input.substring(currentIndex, match.start);
-      if (normalText.isNotEmpty) {
-        spans.add(TextSpan(text: normalText));
-      }
-    }
-
-    final className = match.group(1) ?? '';
-    final innerText = match.group(2) ?? '';
-    final color = kTajweedColors[className];
-
-    spans.add(
-      TextSpan(
-        text: innerText,
-        style: color == null ? null : TextStyle(color: color),
-      ),
+    return TextSpan(
+      text: s.text,
+      style: TextStyle(color: color),
     );
-
-    currentIndex = match.end;
-  }
-
-  if (currentIndex < input.length) {
-    final remaining = input.substring(currentIndex);
-    if (remaining.isNotEmpty) {
-      spans.add(TextSpan(text: remaining));
-    }
-  }
-
-  return spans;
+  }).toList();
 }
 
 class TajweedText extends StatelessWidget {
@@ -97,7 +76,10 @@ class TajweedText extends StatelessWidget {
           height: height,
           color: baseColor,
         ),
-        children: parseTajweed(text),
+        children: buildTajweedSpans(
+          input: text,
+          baseColor: baseColor,
+        ),
       ),
     );
   }

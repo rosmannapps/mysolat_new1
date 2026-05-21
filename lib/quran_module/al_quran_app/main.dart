@@ -740,7 +740,7 @@ class AyahCard extends StatelessWidget {
             fontSize: arabicFontSize,
             height: arabicLineHeight,
             textAlign: TextAlign.center,
-            enableColors: false,
+            enableColors: true,
           ),
           if (showTranslation) ...[
             const SizedBox(height: 10),

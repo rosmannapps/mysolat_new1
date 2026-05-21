@@ -95,7 +95,11 @@ class _MushafPageViewState extends State<MushafPageView> {
                               for (final verse in verses) ...[
                                 Align(
                                   alignment: Alignment.centerRight,
-                                  child: TajweedText(text: verse.text),
+                                  child: TajweedText(
+                                    text: verse.text,
+                                    fontSize: 32,
+                                    baseColor: Colors.black,
+                                  ),
                                 ),
                                 const SizedBox(height: 12),
                               ],

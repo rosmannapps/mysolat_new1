@@ -174,7 +174,9 @@ class _QuranReaderPageState extends State<QuranReaderPage> {
       final no = dynNo is int
           ? dynNo
           : int.tryParse(dynNo.toString()) ?? fallback;
-
+      if (surahNumber == 2 && no == 1) {
+        debugPrint('DEBUG SURAH 2 AYAH 1 ARABIC = $arabic');
+      }
       final trans = (m['ms'] ??
           m['translationMs'] ??
           m['translation'] ??
