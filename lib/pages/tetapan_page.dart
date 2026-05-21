@@ -488,7 +488,7 @@ class _SokongCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Sokong MySolat',
+                      'Sokong MySolat Malaysia',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w900,

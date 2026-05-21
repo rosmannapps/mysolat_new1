@@ -1,9 +1,10 @@
 [
   {
     "ayah": 1,
-    "arabic": "بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ الٓمٓ",
+    "arabic": "الم",
+    "arabic_tajweed": "ا<tajweed class=madda_normal>ل</tajweed>م",
     "malay": "Alif, Laam, Miim."
-  },
+  }R,
   {
     "ayah": 2,
     "arabic": "ذَٰلِكَ ٱلْكِتَـٰبُ لَا رَيْبَ ۛ فِيهِ ۛ هُدًى لِّلْمُتَّقِينَ",

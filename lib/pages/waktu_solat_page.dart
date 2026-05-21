@@ -290,6 +290,22 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
       );
     }
 
+    // 🔍 Debug dump — see what the native geocoder actually returns so we
+    // can tell whether "Seberang Jaya" is hiding in subLocality, locality,
+    // thoroughfare, or just not present at all. Safe to remove later.
+    for (var i = 0; i < marks.length; i++) {
+      final m = marks[i];
+      debugPrint(
+        '🗺️ Placemark[$i] '
+        'subLocality="${m.subLocality}" '
+        'locality="${m.locality}" '
+        'subAdministrativeArea="${m.subAdministrativeArea}" '
+        'administrativeArea="${m.administrativeArea}" '
+        'thoroughfare="${m.thoroughfare}" '
+        'name="${m.name}"',
+      );
+    }
+
     final pm = marks.isNotEmpty ? marks.first : null;
 
     final detectedState = _mapAdministrativeAreaToState(pm?.administrativeArea);
@@ -316,38 +332,57 @@ class _WaktuSolatPageState extends State<WaktuSolatPage> {
     final finalZone = picked ?? _pickDefaultZoneFor(detectedState, zones);
 
     // Personalized display name: prefer the most specific real-world
-    // place name available. Falls through if everything is empty so the
-    // BANDAR field falls back to the JAKIM zone name.
-    final townName = _pickTownDisplayName(pm);
+    // place name available across the *entire* placemark list. Falls
+    // through to null if nothing usable is found, so the BANDAR field
+    // falls back to the JAKIM zone name.
+    final townName = _pickTownDisplayName(marks);
 
     return (state: detectedState, zone: finalZone, townName: townName);
   }
 
-  /// Walks the placemark fields from most specific to most general to find
-  /// a human-readable town/locality name to display.
+  /// Walks the full placemark list from most specific to most general to
+  /// find a human-readable town/locality name to display.
   ///
-  /// Priority is **most specific first** so users feel close to their actual
-  /// location, not lumped into a larger administrative area:
-  ///   1. subLocality      — neighbourhood, e.g. "Sungai Dua"
-  ///   2. locality         — city/town, e.g. "Butterworth"
-  ///   3. subAdministrativeArea — district, e.g. "Seberang Perai Tengah"
+  /// Strategy: scan **every** placemark for the most specific tier before
+  /// falling back to the next tier. This matters because native geocoders
+  /// (especially iOS) often split the answer across multiple placemarks —
+  /// e.g. marks[0] may only have `locality: "Perai"` while marks[1] has
+  /// `subLocality: "Seberang Jaya"`. By scanning the whole list at each
+  /// tier we get "Seberang Jaya" instead of "Perai".
+  ///
+  /// Priority tiers (most specific first):
+  ///   1. subLocality           — neighbourhood, e.g. "Seberang Jaya"
+  ///   2. locality              — city/town,     e.g. "Perai"
+  ///   3. subAdministrativeArea — district,      e.g. "Seberang Perai Tengah"
   ///
   /// Returns null if nothing usable is available — caller falls back to
   /// the JAKIM zone name.
-  String? _pickTownDisplayName(Placemark? pm) {
-    if (pm == null) return null;
-    final candidates = <String?>[
-      pm.subLocality,           // most specific — e.g. "Sungai Dua"
-      pm.locality,              // city/town    — e.g. "Butterworth"
-      pm.subAdministrativeArea, // district     — e.g. "Seberang Perai Tengah"
-    ];
-    for (final c in candidates) {
-      final t = c?.trim() ?? '';
-      if (t.isEmpty) continue;
+  String? _pickTownDisplayName(List<Placemark> marks) {
+    if (marks.isEmpty) return null;
+
+    String? sane(String? raw) {
+      final t = raw?.trim() ?? '';
+      if (t.isEmpty) return null;
       // Guard against pathological placemark values like an entire POI
       // name or address (rare, but iOS does this occasionally).
-      if (t.length > 40) continue;
+      if (t.length > 40) return null;
       return t;
+    }
+
+    // Tier 1: any placemark with a non-empty subLocality wins outright.
+    for (final m in marks) {
+      final v = sane(m.subLocality);
+      if (v != null) return v;
+    }
+    // Tier 2: fall back to any placemark's locality.
+    for (final m in marks) {
+      final v = sane(m.locality);
+      if (v != null) return v;
+    }
+    // Tier 3: last-ditch — district name.
+    for (final m in marks) {
+      final v = sane(m.subAdministrativeArea);
+      if (v != null) return v;
     }
     return null;
   }

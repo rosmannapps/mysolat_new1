@@ -2,6 +2,7 @@
   {
     "ayah": 1,
     "arabic": "بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ",
+    "arabic_tajweed": "بِسْمِ <tajweed class=ham_wasl>ٱ</tajweed>للَّهِ <tajweed class=ham_wasl>ٱ</tajweed>لرَّحْمَـٰنِ <tajweed class=ham_wasl>ٱ</tajweed>لرَّحِيمِ",
     "malay": "Dengan nama Allah, Yang Maha Pemurah, lagi Maha Mengasihani."
   },
   {
