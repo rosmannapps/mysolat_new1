@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../mushaf_page_view.dart';
 
 import '../services/bookmark_storage.dart';
-import 'quran_reader_page.dart';
 
 class BookmarkPage extends StatefulWidget {
   const BookmarkPage({super.key});

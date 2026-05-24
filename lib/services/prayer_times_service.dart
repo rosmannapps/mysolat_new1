@@ -482,7 +482,6 @@ class PrayerTimesService {
       await _markFreshness(zoneCode, 'JAKIM');
     }
   }
-
   Future<CacheHealth> getCacheHealth(String zoneCode) async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_freshnessKey(zoneCode));

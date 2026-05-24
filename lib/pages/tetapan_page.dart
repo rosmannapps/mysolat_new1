@@ -416,12 +416,12 @@ class _SettingCard extends StatelessWidget {
 
 /// Opens the MySolat donation page in the user's default browser.
 /// Uses LaunchMode.externalApplication so the URL opens in Safari/Chrome
-/// instead of an in-app webview — this keeps Apple's reviewers happy
+/// using an in-app browser (Chrome Custom Tab / SFSafariViewController)
 /// because no payment processing happens inside the app itself.
 Future<void> _openSokongPage(BuildContext context) async {
   final uri = Uri.parse('https://rosmannapps.github.io/sokong/');
   try {
-    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    final ok = await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
     if (!ok && context.mounted) {
       _showSokongError(context);
     }

@@ -51,6 +51,9 @@ dependencies:
   xml: ^6.5.0
   geocoding: ^3.0.0
   audioplayers: ^6.6.0
+  just_audio: ^0.9.46
+  path_provider: ^2.1.4
+  share_plus: ^10.1.4
   confetti: ^0.8.0
   timezone: ^0.10.1
 
