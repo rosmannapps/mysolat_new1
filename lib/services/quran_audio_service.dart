@@ -1,12 +1,30 @@
 // lib/services/quran_audio_service.dart
 //
-// Downloads the full-surah MP3 to device storage on first use,
-// then plays from the local file — no network buffering during playback.
+// Single-source-of-truth audio service.
 //
-// Audio source : server11.mp3quran.net/sds/ (As-Sudais, full surah, same as
-//                surahquran.com uses — smooth continuous recording)
-// Timing source: api.qurancdn.com — verse_timings with ms timestamps
-//                (reciter 2 = As-Sudais on Quran.com)
+// Uses ONE Quran Foundation API call per surah to get BOTH the audio URL
+// and the verse timestamps — they are guaranteed to be in sync because they
+// come from the same recording.
+//
+// Endpoint:
+//   GET https://api.qurancdn.com/api/qdc/audio/reciters/2/audio_files
+//       ?chapter={N}&segments=false
+//
+// Response shape (simplified):
+//   {
+//     "audio_files": [
+//       {
+//         "audio_url": "https://.../<reciter>/surah/.../<surah>.mp3",
+//         "verse_timings": [
+//           { "verse_key": "55:1", "timestamp_from": 0, "timestamp_to": 3210 },
+//           ...
+//         ]
+//       }
+//     ]
+//   }
+//
+// Audio is cached locally as  quran_audio/surah_<NNN>_qf.mp3
+// ("_qf" suffix distinguishes it from the old mp3quran.net cached files).
 
 import 'dart:convert';
 import 'dart:io';
@@ -48,36 +66,30 @@ class QuranAudioService {
   // In-memory cache: surahNumber → SurahAudio
   final _cache = <int, SurahAudio>{};
 
-  // ── Audio source ──────────────────────────────────────────────────────────
-  // Full surah MP3 by As-Sudais from mp3quran.net — same source as
-  // surahquran.com. Single continuous recording = perfectly smooth.
-  static String _audioUrl(int surahNumber) {
-    final pad = surahNumber.toString().padLeft(3, '0');
-    return 'https://server11.mp3quran.net/sds/$pad.mp3';
-  }
-
-  // ── Timing source ─────────────────────────────────────────────────────────
-  // Quran.com CDN: reciter 2 = Abdurrahmaan as-Sudais (matches the audio above)
-  // Falls back to reciter 7 (Abdul Basit) if 2 fails.
-  static const List<int> _timingReciterIds = [2, 7, 4];
-  static const String _timingApiBase =
+  // Quran Foundation API — reciter 3 = Abdurrahmaan As-Sudais
+  // (quran.com/en/reciters/3 confirms this ID)
+  static const int _reciterId = 3;
+  static const String _apiBase =
       'https://api.qurancdn.com/api/qdc/audio/reciters';
 
-  /// Prepare surah audio.
+  /// Prepare surah audio — single API call gets both URL and timings.
   ///
-  /// 1. Fetch verse timing from Quran.com API (JSON only, fast).
-  /// 2. Download the full-surah MP3 from mp3quran.net if not cached.
-  /// 3. Return [SurahAudio] with local path + timings.
+  /// 1. Call Quran Foundation API for chapter audio metadata.
+  /// 2. Extract audio_url and verse_timings from the response.
+  /// 3. Download the MP3 from audio_url if not already cached.
+  /// 4. Return [SurahAudio] with local path + timings.
   ///
-  /// [onProgress] receives 0.0 → 1.0 during the MP3 download.
+  /// [onProgress] receives 0.0 to 1.0 during the MP3 download.
   Future<SurahAudio> prepare(
     int surahNumber, {
     void Function(double progress)? onProgress,
   }) async {
     if (_cache.containsKey(surahNumber)) return _cache[surahNumber]!;
 
-    // ── 1. Fetch verse timings ──────────────────────────────────────────────
-    final timings = await _fetchTimings(surahNumber);
+    // ── 1. Fetch metadata (audio URL + timings) ─────────────────────────────
+    final meta = await _fetchMeta(surahNumber);
+    final audioUrl = meta['audio_url'] as String;
+    final timings  = meta['timings']   as List<AyahTiming>;
 
     // ── 2. Resolve local cache path ─────────────────────────────────────────
     final cacheDir = await getApplicationDocumentsDirectory();
@@ -85,20 +97,21 @@ class QuranAudioService {
     await audioDir.create(recursive: true);
 
     final pad       = surahNumber.toString().padLeft(3, '0');
-    final localPath = '${audioDir.path}/surah_${pad}_sudais.mp3';
+    // _sudais suffix = Quran Foundation reciter 3 (As-Sudais)
+    // Different filename from old mp3quran.net cache to avoid stale playback.
+    final localPath = '${audioDir.path}/surah_${pad}_sudais_qf.mp3';
     final localFile = File(localPath);
 
     // ── 3. Download if not cached ───────────────────────────────────────────
     if (!await localFile.exists()) {
-      final url = _audioUrl(surahNumber);
-      debugPrint('[QuranAudio] Downloading → $url');
+      debugPrint('[QuranAudio] Downloading from QF → $audioUrl');
       onProgress?.call(0.0);
 
-      final request  = http.Request('GET', Uri.parse(url));
+      final request  = http.Request('GET', Uri.parse(audioUrl));
       final response = await request.send();
 
       if (response.statusCode != 200) {
-        throw Exception('Download failed: HTTP ${response.statusCode}');
+        throw Exception('Audio download failed: HTTP ${response.statusCode}');
       }
 
       final total    = response.contentLength ?? 0;
@@ -125,74 +138,115 @@ class QuranAudioService {
     return result;
   }
 
-  // ── Timing fetch ──────────────────────────────────────────────────────────
+  // ── Metadata fetch ────────────────────────────────────────────────────────
 
-  Future<List<AyahTiming>> _fetchTimings(int surahNumber) async {
-    for (final reciterId in _timingReciterIds) {
-      try {
-        final url = Uri.parse(
-          '$_timingApiBase/$reciterId/audio_files'
-          '?chapter=$surahNumber&segments=true',
-        );
-        final res = await http
-            .get(url, headers: {'Accept': 'application/json'})
-            .timeout(const Duration(seconds: 10));
+  /// Returns a map with keys:
+  ///   'audio_url' : String
+  ///   'timings'   : List<AyahTiming>
+  Future<Map<String, dynamic>> _fetchMeta(int surahNumber) async {
+    final url = Uri.parse(
+      '$_apiBase/$_reciterId/audio_files'
+      '?chapter=$surahNumber&segments=false',
+    );
 
-        if (res.statusCode != 200) continue;
+    debugPrint('[QuranAudio] Fetching meta → $url');
 
-        final data  = jsonDecode(res.body) as Map<String, dynamic>;
-        final files = data['audio_files'] as List? ?? [];
-        if (files.isEmpty) continue;
+    final res = await http
+        .get(url, headers: {'Accept': 'application/json'})
+        .timeout(const Duration(seconds: 15));
 
-        final file       = files.first as Map<String, dynamic>;
-        final rawTimings = file['verse_timings'] as List? ?? [];
-        if (rawTimings.isEmpty) continue;
-
-        final timings = <AyahTiming>[];
-        for (final t in rawTimings) {
-          if (t is! Map) continue;
-          final key     = (t['verse_key'] ?? '').toString();
-          final startMs = _asInt(t['timestamp_from']);
-          final endMs   = _asInt(t['timestamp_to']);
-          if (key.isEmpty || endMs <= startMs) continue;
-          final parts   = key.split(':');
-          final ayahNum = parts.length >= 2 ? (int.tryParse(parts[1]) ?? 0) : 0;
-          if (ayahNum <= 0) continue;
-          timings.add(AyahTiming(
-            ayahNumber: ayahNum,
-            startMs:    startMs,
-            endMs:      endMs,
-          ));
-        }
-
-        if (timings.isNotEmpty) {
-          timings.sort((a, b) => a.startMs.compareTo(b.startMs));
-          debugPrint(
-              '[QuranAudio] Timings loaded (reciter $reciterId): ${timings.length} ayahs');
-          return timings;
-        }
-      } catch (e) {
-        debugPrint('[QuranAudio] Timing fetch failed (reciter $reciterId): $e');
-      }
+    if (res.statusCode != 200) {
+      throw Exception('Meta fetch failed: HTTP ${res.statusCode}');
     }
-    debugPrint('[QuranAudio] No timing data available — verse scroll disabled');
-    return [];
+
+    final data  = jsonDecode(res.body) as Map<String, dynamic>;
+
+    // The API returns either "audio_files" (list) or "audio_file" (object).
+    Map<String, dynamic>? file;
+    if (data['audio_files'] is List && (data['audio_files'] as List).isNotEmpty) {
+      file = (data['audio_files'] as List).first as Map<String, dynamic>;
+    } else if (data['audio_file'] is Map) {
+      file = data['audio_file'] as Map<String, dynamic>;
+    }
+
+    if (file == null) {
+      throw Exception('No audio_file in API response for surah $surahNumber');
+    }
+
+    // ── audio URL ────────────────────────────────────────────────────────────
+    final rawUrl = (file['audio_url'] ?? '').toString().trim();
+    if (rawUrl.isEmpty) {
+      throw Exception('Empty audio_url in API response for surah $surahNumber');
+    }
+    // The API sometimes returns a relative URL — make it absolute.
+    final audioUrl = rawUrl.startsWith('http')
+        ? rawUrl
+        : 'https://verses.quran.com/$rawUrl';
+
+    // ── verse timings ────────────────────────────────────────────────────────
+    final rawTimings = file['verse_timings'] as List? ?? [];
+    final timings    = <AyahTiming>[];
+
+    for (final t in rawTimings) {
+      if (t is! Map) continue;
+      final key     = (t['verse_key'] ?? '').toString();
+      final startMs = _asInt(t['timestamp_from']);
+      final endMs   = _asInt(t['timestamp_to']);
+      if (key.isEmpty || endMs <= startMs) continue;
+      final parts   = key.split(':');
+      final ayahNum = parts.length >= 2 ? (int.tryParse(parts[1]) ?? 0) : 0;
+      if (ayahNum <= 0) continue;
+      timings.add(AyahTiming(
+        ayahNumber: ayahNum,
+        startMs:    startMs,
+        endMs:      endMs,
+      ));
+    }
+
+    timings.sort((a, b) => a.startMs.compareTo(b.startMs));
+    debugPrint(
+        '[QuranAudio] Meta loaded: ${timings.length} timings, url=$audioUrl');
+
+    return {'audio_url': audioUrl, 'timings': timings};
+  }
+
+  // ── Timing-only fetch (no audio download) ────────────────────────────────
+
+  /// Fetches verse timings without downloading the audio file.
+  /// Useful for pre-loading timing data in the background.
+  Future<List<AyahTiming>> fetchTimingsOnly(int surahNumber) async {
+    try {
+      final meta = await _fetchMeta(surahNumber);
+      return meta['timings'] as List<AyahTiming>;
+    } catch (e) {
+      debugPrint('[QuranAudio] fetchTimingsOnly failed: $e');
+      return [];
+    }
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  /// Returns the 0-based list index of the ayah at [positionMs].
+  /// Returns the 0-based list index of the ayah playing at [positionMs].
   int ayahIndexAt(List<AyahTiming> timings, int positionMs) {
-    for (int i = 0; i < timings.length; i++) {
-      if (positionMs >= timings[i].startMs && positionMs < timings[i].endMs) {
-        return i;
+    if (timings.isEmpty) return 0;
+    // Binary search for efficiency
+    int lo = 0, hi = timings.length - 1;
+    while (lo <= hi) {
+      final mid = (lo + hi) >> 1;
+      if (positionMs < timings[mid].startMs) {
+        hi = mid - 1;
+      } else if (positionMs >= timings[mid].endMs) {
+        lo = mid + 1;
+      } else {
+        return mid; // found
       }
     }
-    if (positionMs > 0 && timings.isNotEmpty) return timings.length - 1;
+    // positionMs is beyond the last timing or before the first
+    if (positionMs >= timings.last.endMs) return timings.length - 1;
     return 0;
   }
 
-  // ── Per-ayah download ─────────────────────────────────────────────────────
+  // ── Per-ayah download (for individual ayah play buttons) ─────────────────
 
   Future<String> ayahLocalPath(int surahNo, int ayahNo) async {
     final cacheDir = await getApplicationDocumentsDirectory();
@@ -240,18 +294,12 @@ class QuranAudioService {
       if (res.statusCode == 200) {
         await file.writeAsBytes(res.bodyBytes);
       } else {
-        throw Exception('Download failed for ayah $ayahNo: ${res.statusCode}');
+        throw Exception(
+            'Per-ayah download failed for $surahNo:$ayahNo — HTTP ${res.statusCode}');
       }
     }
     return localPath;
   }
-
-  // ── Timing-only fetch (no audio download) ────────────────────────────────
-
-  /// Fetches verse timings without downloading the audio file.
-  /// Useful for pre-loading timing data in the background.
-  Future<List<AyahTiming>> fetchTimingsOnly(int surahNumber) =>
-      _fetchTimings(surahNumber);
 
   // ── Cache management ──────────────────────────────────────────────────────
 
@@ -261,6 +309,8 @@ class QuranAudioService {
     final audioDir = Directory('${cacheDir.path}/quran_audio');
     if (await audioDir.exists()) await audioDir.delete(recursive: true);
   }
+
+  // ── Utilities ─────────────────────────────────────────────────────────────
 
   static int _asInt(dynamic v) {
     if (v == null)   return 0;

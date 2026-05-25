@@ -193,7 +193,7 @@ class _QuranReaderPageState extends State<QuranReaderPage> {
       if (!mounted || _timings.isEmpty) return;
       final ms    = pos.inMilliseconds;
       final index = QuranAudioService.instance
-          .ayahIndexAtPosition(_timings, ms);
+          .ayahIndexAt(_timings, ms);
       if (index >= 0 && index != _currentPlayIndex) {
         setState(() => _currentPlayIndex = index);
         if (_itemScrollController.isAttached) {
@@ -460,8 +460,7 @@ class _QuranReaderPageState extends State<QuranReaderPage> {
             const SizedBox(height: 24),
 
             // Option 1 — Full Surah
-            _downloadOptionTile(
-              context:     context,
+            _downloadOptionTile(context,
               icon:        Icons.music_note_rounded,
               title:       'Muat Turun Surah Penuh',
               subtitle:    'Satu fail audio berterusan — tilawah lancar tanpa henti. '
@@ -475,8 +474,7 @@ class _QuranReaderPageState extends State<QuranReaderPage> {
             const SizedBox(height: 12),
 
             // Option 2 — Per Ayah
-            _downloadOptionTile(
-              context:     context,
+            _downloadOptionTile(context,
               icon:        Icons.format_list_numbered_rounded,
               title:       'Muat Turun Per Ayat',
               subtitle:    'Setiap ayat disimpan berasingan — sesuai untuk ulangan '
@@ -739,6 +737,7 @@ class _QuranReaderPageState extends State<QuranReaderPage> {
                       size: 26,
                     ),
           ),
+           ),
           const SizedBox(width: 14),
 
           // Status label

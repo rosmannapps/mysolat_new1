@@ -629,21 +629,6 @@ class _BookmarkTabState extends State<BookmarkTab> {
 // Timing models (for full-surah smooth playback)
 // =====================================================
 
-class _WordTiming {
-  final int wordIndex; // 1-based within the ayah
-  final int from;      // ms absolute from start of surah audio
-  final int to;        // ms absolute
-  const _WordTiming(this.wordIndex, this.from, this.to);
-}
-
-class _AyahTiming {
-  final int ayahNumber;
-  final int from;              // ms absolute from start of surah audio
-  final int to;                // ms absolute
-  final List<_WordTiming> words;
-  const _AyahTiming(this.ayahNumber, this.from, this.to, this.words);
-}
-
 // =====================================================
 // Surah Reader Page (FAST + ACCURATE JUMP)
 // =====================================================
@@ -682,6 +667,11 @@ class _SurahReaderPageState extends State<SurahReaderPage> {
   // Linear scroll: progress × maxScrollExtent drives position during playback.
   final ScrollController _scrollController = ScrollController();
 
+
+  // ── User-scroll override ──────────────────────────────────────────────
+  bool   _userScrolling = false;   // true while user is touching the list
+  Timer? _resumeTimer;             // fires 3 s after last touch to resume
+
   int? _highlightAyah;
 
   // ── Per-ayah audio playback ────────────────────────────────────
@@ -712,16 +702,11 @@ class _SurahReaderPageState extends State<SurahReaderPage> {
   // ── Full-surah smooth playback ─────────────────────────────────
   // Single just_audio player plays ONE downloaded full-surah MP3.
   // No per-ayah switching = perfectly smooth, identical to surahquran.com.
-  // positionStream drives verse highlight + scroll in the background.
+  // currentIndexStream drives verse highlight + scroll in the background.
   final ja.AudioPlayer _surahPlayer = ja.AudioPlayer();
   bool _surahPlaying    = false;
   bool _surahLoading    = false;
   int? _surahCurrentAyah;
-  int? _surahCurrentWord;
-  List<_AyahTiming> _timings = [];
-  double _surahAyahProgress   = 0.0; // 0.0→1.0 progress within the currently active ayah
-  double _surahOverallProgress = 0.0; // 0.0→1.0 overall progress through the whole surah
-
   // ── Per-ayah notes (SharedPreferences) ────────────────────────
   // Key: "quran_note_{surahNo}_{ayahNo}"  Value: note text
   Map<int, String> _notes = {}; // ayahNo → note text for current surah
@@ -750,42 +735,6 @@ class _SurahReaderPageState extends State<SurahReaderPage> {
   }
   // ───────────────────────────────────────────────────────────────
 
-  // ── Math-based fallback timing ───────────────────────────────────────
-  /// Divides total audio duration across ayahs, weighted by Arabic character
-  /// count.  Longer ayahs get proportionally more time.
-  /// Called automatically when the API timing data is unavailable.
-  void _computeFallbackTimings(Duration audioDuration) {
-    if (_timings.isNotEmpty) return; // real timings already loaded
-    final totalMs = audioDuration.inMilliseconds;
-    if (totalMs <= 0) return;
-
-    final ayahs = widget.surah.ayahs;
-    // Strip tajweed markup and count Arabic chars as a proxy for recitation time
-    final charCounts = ayahs.map((a) {
-      final clean = a.textWithEndSpan.replaceAll(RegExp(r'<[^>]+>'), '');
-      return clean.length.clamp(1, 999999);
-    }).toList();
-    final totalChars = charCounts.fold<int>(0, (s, c) => s + c);
-
-    int cumMs = 0;
-    final computed = <_AyahTiming>[];
-    for (int i = 0; i < ayahs.length; i++) {
-      final startMs = cumMs;
-      final ayahMs  = ((charCounts[i] / totalChars) * totalMs).round();
-      cumMs += ayahMs;
-      computed.add(_AyahTiming(ayahs[i].ayahNumber, startMs, cumMs, []));
-    }
-    // Clamp last ayah end to total duration (rounding may leave a tiny gap)
-    if (computed.isNotEmpty) {
-      final last = computed.last;
-      computed[computed.length - 1] =
-          _AyahTiming(last.ayahNumber, last.from, totalMs, last.words);
-    }
-
-    if (mounted) setState(() => _timings = computed);
-    debugPrint('[SurahReader] Fallback timings: ${computed.length} ayahs, ${totalMs}ms total');
-  }
-  // ─────────────────────────────────────────────────────────────────────
 
   String _everyayahUrl(int surahNo, int ayahNo) =>
       'https://everyayah.com/data/Abdurrahmaan_As-Sudais_192kbps/'
@@ -793,20 +742,6 @@ class _SurahReaderPageState extends State<SurahReaderPage> {
 
   /// Pre-fetch verse timings in the background so they're ready when play is tapped.
   /// Does NOT download the audio file — that only happens when the user taps play.
-  Future<void> _fetchTimingsAndUrl(int surahNumber) async {
-    try {
-      final timings = await QuranAudioService.instance.fetchTimingsOnly(surahNumber);
-      if (!mounted || timings.isEmpty) return;
-      setState(() {
-        _timings = timings
-            .map((t) => _AyahTiming(t.ayahNumber, t.startMs, t.endMs, []))
-            .toList();
-      });
-      debugPrint('[SurahReader] Pre-fetched ${timings.length} ayah timings for surah $surahNumber');
-    } catch (e) {
-      debugPrint('[SurahReader] Timing pre-fetch failed: $e');
-    }
-  }
 
   Future<void> _toggleSurahPlay() async {
     // Pause if already playing
@@ -826,6 +761,10 @@ class _SurahReaderPageState extends State<SurahReaderPage> {
     if (_surahPlayer.processingState == ja.ProcessingState.ready) {
       if (mounted) setState(() => _surahPlaying = true); // set BEFORE play()
       await _surahPlayer.play();
+      // Snap scroll to current ayah and resume
+      if (_surahCurrentAyah != null) {
+        _scrollToAyah((_surahCurrentAyah! - 1), animate: false);
+      }
       return;
     }
 
@@ -837,50 +776,40 @@ class _SurahReaderPageState extends State<SurahReaderPage> {
     if (mounted) setState(() { _surahLoading = true; _surahPlaying = false; });
 
     try {
-      // Download full surah (cached after first time)
-      final surahAudio = await QuranAudioService.instance.prepare(
-        widget.surah.number,
-        onProgress: (_) {},
+      final surahNo   = widget.surah.number;
+      final ayahCount = widget.surah.ayahs.length;
+
+      // Build gapless playlist — one MP3 per ayah, all by As-Sudais (everyayah.com)
+      // ConcatenatingAudioSource pre-buffers the next file, so playback is seamless.
+      final children = List.generate(ayahCount, (i) {
+        final s = surahNo.toString().padLeft(3, '0');
+        final a = (i + 1).toString().padLeft(3, '0');
+        return ja.AudioSource.uri(
+          Uri.parse(
+            'https://everyayah.com/data/Abdurrahmaan_As-Sudais_192kbps/$s$a.mp3',
+          ),
+        );
+      });
+
+      await _surahPlayer.setAudioSource(
+        ja.ConcatenatingAudioSource(children: children),
+        initialIndex:    0,
+        initialPosition: Duration.zero,
       );
 
-      // Get verse timings if not already loaded
-      if (_timings.isEmpty && surahAudio.timings.isNotEmpty) {
-        // Convert QuranAudioService timings → _AyahTiming for word highlight
-        _timings = surahAudio.timings.map((t) =>
-          _AyahTiming(t.ayahNumber, t.startMs, t.endMs, [])
-        ).toList();
-      }
-
-      // Play from local file — smooth like a local audio file
-      await _surahPlayer.setFilePath(surahAudio.localPath);
-
-      // If API timing data was unavailable, compute from duration + char count
-      final dur = _surahPlayer.duration;
-      if (_timings.isEmpty && dur != null) _computeFallbackTimings(dur);
-
-      // Set _surahPlaying = true BEFORE play() so the positionStream listener
-      // processes updates from the very first audio frame.
       if (mounted) setState(() {
         _surahLoading         = false;
         _surahPlaying         = true;
         _surahCurrentAyah     = 1;
-        _surahCurrentWord     = null;
-        _surahAyahProgress    = 0.0;
-        _surahOverallProgress = 0.0;
       });
 
       await _surahPlayer.play();
 
-      // Scroll to top of the list when a fresh recitation starts
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          0,
-          duration: const Duration(milliseconds: 400),
-          curve: Curves.easeOutCubic,
-        );
-      }
+      // Jump to top so ayah 1 is visible immediately
+      if (_scrollController.hasClients) _scrollController.jumpTo(0);
+
     } catch (e) {
-      debugPrint('❌ Full surah play failed: $e');
+      debugPrint('Full surah play failed: $e');
       if (mounted) {
         setState(() { _surahLoading = false; });
         ScaffoldMessenger.of(context).showSnackBar(
@@ -889,17 +818,17 @@ class _SurahReaderPageState extends State<SurahReaderPage> {
       }
     }
   }
-  // ───────────────────────────────────────────────────────────────
+
 
   @override
   void initState() {
     super.initState();
+
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _jumpToAyah(widget.startAyah);
     });
 
-    // Silently pre-fetch word timing data so it's ready before the user taps play
-    _fetchTimingsAndUrl(widget.surah.number);
     _loadNotes();
 
     // Per-ayah single player: clear loading spinner once audio starts
@@ -909,120 +838,33 @@ class _SurahReaderPageState extends State<SurahReaderPage> {
       }
     });
 
-    // Per-ayah auto-advance (single-tap play buttons)
-    _audioPlayer.onPlayerComplete.listen((_) async {
-      if (!mounted || _playingAyah == null) {
-        if (mounted) setState(() { _playingAyah = null; _isLoadingAudio = false; });
-        return;
-      }
-      final surahNo = _playingAyah! ~/ 1000;
-      final ayahNo  = _playingAyah! % 1000;
-      final nextAyah = ayahNo + 1;
-      if (nextAyah <= widget.surah.ayahs.length) {
-        await Future.delayed(const Duration(milliseconds: 100));
-        if (!mounted) return;
-        _scrollToAyah(nextAyah - 1);
-        _togglePlay(surahNo, nextAyah);
-      } else {
-        if (mounted) setState(() { _playingAyah = null; _isLoadingAudio = false; });
-      }
+    // Per-ayah play: one tap = one ayah, then stop.
+    _audioPlayer.onPlayerComplete.listen((_) {
+      if (mounted) setState(() { _playingAyah = null; _isLoadingAudio = false; });
     });
 
-    // ── Full-surah just_audio listeners ─────────────────────────────
-    // positionStream fires ~200 ms → maps position to ayah + within-ayah
-    // progress (0.0→1.0) so the read-along progress bar animates smoothly.
-    _surahPlayer.positionStream.listen((pos) {
-      // Use _surahPlayer.playing (actual player state) NOT _surahPlaying (UI flag).
-      // _surahPlaying is set in setState AFTER play() returns, causing a race where
-      // the first N position updates are discarded while _surahPlaying is still false.
-      if (!mounted || !_surahPlayer.playing) return;
-
-      // If timings not yet loaded (API + fallback both pending), compute uniform
-      // distribution right here so scrolling works from the very first update.
-      if (_timings.isEmpty) {
-        final dur = _surahPlayer.duration;
-        if (dur != null && dur.inMilliseconds > 0) _computeFallbackTimings(dur);
-        if (_timings.isEmpty) return; // duration not available yet — skip this tick
-      }
-      final ms = pos.inMilliseconds;
-
-      // ── Locate current ayah ──────────────────────────────────────
-      int newAyah = _surahCurrentAyah ?? 1;
-      _AyahTiming? activeTiming;
-      for (final t in _timings) {
-        if (ms >= t.from && ms < t.to) {
-          newAyah      = t.ayahNumber;
-          activeTiming = t;
-          break;
-        }
-      }
-      // Past last timing entry — clamp to last ayah
-      if (activeTiming == null && ms > 0 && _timings.isNotEmpty) {
-        newAyah      = _timings.last.ayahNumber;
-        activeTiming = _timings.last;
-      }
-
-      // ── Within-ayah progress 0.0→1.0 ────────────────────────────
-      double progress = 0.0;
-      if (activeTiming != null) {
-        final span = (activeTiming.to - activeTiming.from).toDouble();
-        if (span > 0) {
-          progress = ((ms - activeTiming.from) / span).clamp(0.0, 1.0);
-        }
-      }
-
-      // ── Update state ─────────────────────────────────────────────
-      final ayahChanged = newAyah != _surahCurrentAyah;
-      // Only rebuild when ayah changes OR progress moves enough (avoid
-      // rebuilding every single frame — threshold 0.5% is imperceptible)
-      // Overall progress 0.0→1.0 through the whole surah
-      final totalMs = (_surahPlayer.duration?.inMilliseconds ?? 0).toDouble();
-      final overallProgress = totalMs > 0 ? (ms / totalMs).clamp(0.0, 1.0) : 0.0;
-
-      if (ayahChanged ||
-          (progress - _surahAyahProgress).abs() >= 0.005 ||
-          (overallProgress - _surahOverallProgress).abs() >= 0.002) {
-        if (mounted) setState(() {
-          _surahCurrentAyah     = newAyah;
-          _surahAyahProgress    = progress;
-          _surahOverallProgress = overallProgress;
-          if (ayahChanged) _surahCurrentWord = null;
-        });
-      }
-
-      // ── Smooth linear scroll driven by overall audio progress ────
-      // Maps the full audio duration directly to the full page height —
-      // no per-ayah timing needed. The page glides continuously downward.
-      if (_scrollController.hasClients) {
-        final maxExtent = _scrollController.position.maxScrollExtent;
-        if (maxExtent > 0) {
-          _scrollController.animateTo(
-            (overallProgress * maxExtent).clamp(0.0, maxExtent),
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.linear,
-          );
-        }
-      }
+    // ── Full-surah just_audio listeners ─────────────────────────────────────
+    //
+    // currentIndexStream: fires the instant just_audio moves to the next ayah.
+    // Perfect sync — no timing maths, no API, no drift.
+    _surahPlayer.currentIndexStream.listen((index) {
+      if (!mounted || index == null || !_surahPlaying) return;
+      final ayahNo = index + 1; // convert 0-based index → 1-based ayah number
+      if (ayahNo == _surahCurrentAyah) return;
+      if (mounted) setState(() => _surahCurrentAyah = ayahNo);
+      if (!_userScrolling) _scrollToAyah(index);
     });
 
-    // playerStateStream: detect natural end of surah
+
+    // playerStateStream: reset UI when surah finishes.
     _surahPlayer.playerStateStream.listen((state) {
       if (!mounted) return;
       if (state.processingState == ja.ProcessingState.completed) {
         setState(() {
           _surahPlaying         = false;
           _surahCurrentAyah     = null;
-          _surahCurrentWord     = null;
-          _surahAyahProgress    = 0.0;
-          _surahOverallProgress = 0.0;
         });
       }
-    });
-
-    // durationStream: compute fallback timings as soon as audio duration is known
-    // (covers the case where duration becomes available after setFilePath returns)
-    _surahPlayer.durationStream.listen((dur) {
-      if (dur != null && _timings.isEmpty) _computeFallbackTimings(dur);
     });
   }
 
@@ -1093,11 +935,38 @@ class _SurahReaderPageState extends State<SurahReaderPage> {
 
   @override
   void dispose() {
+    _resumeTimer?.cancel();
     _audioPlayer.dispose();
     _surahPlayer.dispose();
     _scrollController.dispose();
     super.dispose();
   }
+
+  // ── User-scroll interaction ───────────────────────────────────────────
+
+  /// Called when the user touches the list. Pauses auto-scroll immediately.
+  void _onUserScrollStart() {
+    if (!_surahPlaying) return;
+    _resumeTimer?.cancel();
+    if (!_userScrolling && mounted) setState(() => _userScrolling = true);
+  }
+
+  /// Called when the user lifts their finger. Schedules auto-scroll resume
+  /// after 3 seconds of inactivity.
+  void _onUserScrollEnd() {
+    if (!_surahPlaying) return;
+    _resumeTimer?.cancel();
+    _resumeTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted || !_surahPlaying) return;
+      // Snap scroll to current ayah and resume tracking
+      if (_surahCurrentAyah != null) {
+        _scrollToAyah(_surahCurrentAyah! - 1, animate: false);
+      }
+      if (mounted) setState(() => _userScrolling = false);
+    });
+  }
+  // ─────────────────────────────────────────────────────────────────────
+
 
   /// Scroll to a specific ayah and briefly highlight it.
   /// Uses a fraction-based estimate: ayahIndex / totalAyahs × maxScrollExtent.
@@ -1117,15 +986,19 @@ class _SurahReaderPageState extends State<SurahReaderPage> {
   void _scrollToAyah(int index, {bool animate = true}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollController.hasClients) return;
-      final total  = widget.surah.ayahs.length;
-      final max    = _scrollController.position.maxScrollExtent;
+      final total    = widget.surah.ayahs.length;
+      final max      = _scrollController.position.maxScrollExtent;
+      final viewport = _scrollController.position.viewportDimension;
       if (max <= 0 || total <= 0) return;
-      final target = (index / total * max).clamp(0.0, max);
+      // Place the active ayah at roughly 40% from the top of the screen.
+      // This keeps it readable — visible context above AND below it.
+      final rawTarget = (index / total * max);
+      final target    = (rawTarget - viewport * 0.40).clamp(0.0, max);
       if (animate) {
         _scrollController.animateTo(
           target,
-          duration: const Duration(milliseconds: 450),
-          curve: Curves.easeOutCubic,
+          duration: const Duration(milliseconds: 1800),
+          curve: Curves.easeInOutCubic,
         );
       } else {
         _scrollController.jumpTo(target);
@@ -1468,8 +1341,12 @@ class _SurahReaderPageState extends State<SurahReaderPage> {
           ),
           body: Stack(
             children: [
-              // ── Verse list ─────────────────────────────────────────
-              ListView.separated(
+              // ── Verse list (wrapped in Listener for touch-to-pause) ─
+              Listener(
+                onPointerDown: (_) => _onUserScrollStart(),
+                onPointerUp:   (_) => _onUserScrollEnd(),
+                onPointerCancel: (_) => _onUserScrollEnd(),
+                child: ListView.separated(
             controller: _scrollController,
             // cacheExtent pre-builds content ahead of the viewport so
             // maxScrollExtent converges quickly for accurate interpolation.
@@ -1521,98 +1398,68 @@ class _SurahReaderPageState extends State<SurahReaderPage> {
                   isPlaying: _playingAyah == (surahNo * 1000 + ayahNo) && !_isLoadingAudio,
                   isLoadingAudio: _playingAyah == (surahNo * 1000 + ayahNo) && _isLoadingAudio,
                   onPlayTap: () => _togglePlay(surahNo, ayahNo),
-                  highlightedWordIndex: (_surahPlaying && _surahCurrentAyah == ayahNo)
-                      ? _surahCurrentWord
-                      : null,
+                  highlightedWordIndex: null,
                   hasNote: _notes.containsKey(ayahNo),
                   onMoreTap: () => _showAyahMenu(context, ayahNo),
                 ),
               );
             },
           ),
+              ), // ── end Listener ──────────────────────────────────────
 
-              // ── Right-side recitation progress bar ─────────────────
-              // A thin vertical strip pinned to the right edge of the screen.
-              // Fills top→bottom in sync with the audio position.
-              // Only visible while the full-surah player is active.
-              if (_surahPlaying || _surahOverallProgress > 0)
+
+              // ── "Back to verse" FAB ────────────────────────────────
+              // Appears while the user is scrolling freely during playback.
+              // Tapping it snaps back to the current recitation position.
+              if (_userScrolling && _surahPlaying)
                 Positioned(
-                  top: 0,
-                  bottom: 0,
+                  bottom: 24,
+                  left: 0,
                   right: 0,
-                  width: 20,
-                  child: LayoutBuilder(
-                    builder: (ctx, constraints) {
-                      final totalH = constraints.maxHeight;
-                      return Stack(
-                        children: [
-                          // Track (background)
-                          Positioned(
-                            top: 0, bottom: 0, right: 6,
-                            child: Container(
-                              width: 4,
-                              decoration: BoxDecoration(
-                                color: isDark
-                                    ? Colors.white.withOpacity(0.08)
-                                    : Colors.black.withOpacity(0.07),
-                                borderRadius: BorderRadius.circular(2),
+                  child: Center(
+                    child: GestureDetector(
+                      onTap: () {
+                        _resumeTimer?.cancel();
+                        if (_surahCurrentAyah != null) {
+                          _scrollToAyah(_surahCurrentAyah! - 1, animate: true);
+                        }
+                        if (mounted) setState(() => _userScrolling = false);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 18, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? Colors.black.withOpacity(0.82)
+                              : Colors.white.withOpacity(0.92),
+                          borderRadius: BorderRadius.circular(24),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.18),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.my_location_rounded,
+                                size: 16,
+                                color: Theme.of(context).colorScheme.primary),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Back to verse',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: isDark ? Colors.white : Colors.black87,
                               ),
                             ),
-                          ),
-                          // Fill (progress)
-                          Positioned(
-                            top: 0,
-                            right: 6,
-                            child: TweenAnimationBuilder<double>(
-                              tween: Tween<double>(
-                                begin: 0,
-                                end: _surahOverallProgress,
-                              ),
-                              duration: const Duration(milliseconds: 200),
-                              curve: Curves.easeOut,
-                              builder: (_, v, __) => Container(
-                                width: 4,
-                                height: totalH * v,
-                                decoration: BoxDecoration(
-                                  color: Theme.of(ctx).colorScheme.primary
-                                      .withOpacity(isDark ? 0.75 : 0.65),
-                                  borderRadius: BorderRadius.circular(2),
-                                ),
-                              ),
-                            ),
-                          ),
-                          // Dot indicator at current position
-                          Positioned(
-                            top: totalH * _surahOverallProgress - 6,
-                            right: 4,
-                            child: TweenAnimationBuilder<double>(
-                              tween: Tween<double>(
-                                begin: 0,
-                                end: _surahOverallProgress,
-                              ),
-                              duration: const Duration(milliseconds: 200),
-                              curve: Curves.easeOut,
-                              builder: (_, v, __) => Container(
-                                width: 8,
-                                height: 8,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: Theme.of(ctx).colorScheme.primary,
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Theme.of(ctx).colorScheme.primary
-                                          .withOpacity(0.45),
-                                      blurRadius: 4,
-                                      spreadRadius: 1,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      );
-                    },
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ),
             ],
