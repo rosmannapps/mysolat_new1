@@ -27,11 +27,11 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.1.1</string>
+	<string>1.2.0</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
 	<key>CFBundleVersion</key>
-	<string>17</string>
+	<string>20</string>
 	<key>LSApplicationCategoryType</key>
 	<string></string>
 	<key>LSRequiresIPhoneOS</key>
@@ -41,7 +41,9 @@
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>MySolat menggunakan lokasi untuk menentukan zon waktu solat secara automatik.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>MySolat memerlukan lokasi untuk menentukan zon waktu solat yang tepat.</string>
+	<string>MySolat memerlukan lokasi anda untuk menentukan waktu solat yang tepat.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>MySolat memerlukan akses mikrofon untuk ciri yang menggunakan input audio.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>MySolat uses motion and compass sensors to show Qiblat direction accurately.</string>
 	<key>UIApplicationSceneManifest</key>

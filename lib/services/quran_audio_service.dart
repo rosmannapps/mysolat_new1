@@ -2,29 +2,15 @@
 //
 // Single-source-of-truth audio service.
 //
-// Uses ONE Quran Foundation API call per surah to get BOTH the audio URL
-// and the verse timestamps — they are guaranteed to be in sync because they
-// come from the same recording.
+// Uses the Quran Foundation API to get BOTH the full-surah audio URL
+// and verse timestamps for the selected reciter.
+//
+// Per-ayah streaming uses everyayah.com (faster, no download needed).
 //
 // Endpoint:
-//   GET https://api.qurancdn.com/api/qdc/audio/reciters/2/audio_files
+//   GET https://api.qurancdn.com/api/qdc/audio/reciters/{id}/audio_files
 //       ?chapter={N}&segments=false
 //
-// Response shape (simplified):
-//   {
-//     "audio_files": [
-//       {
-//         "audio_url": "https://.../<reciter>/surah/.../<surah>.mp3",
-//         "verse_timings": [
-//           { "verse_key": "55:1", "timestamp_from": 0, "timestamp_to": 3210 },
-//           ...
-//         ]
-//       }
-//     ]
-//   }
-//
-// Audio is cached locally as  quran_audio/surah_<NNN>_qf.mp3
-// ("_qf" suffix distinguishes it from the old mp3quran.net cached files).
 
 import 'dart:convert';
 import 'dart:io';
@@ -32,8 +18,88 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-// ── Data models ──────────────────────────────────────────────────────────────
+// ── Reciter model ─────────────────────────────────────────────────────────────
+
+class QuranReciter {
+  final int    id;                // Internal app ID (1–5)
+  final String name;              // English display name
+  final String nameAr;            // Arabic name
+  final String origin;            // Country / mosque
+  final String style;             // Murattal / Mujawwad
+  final String everyayahFolder;   // Folder name on everyayah.com
+  final int    qfApiId;           // Quran Foundation API reciter ID
+  final String fileSuffix;        // Suffix for local cache filename
+
+  const QuranReciter({
+    required this.id,
+    required this.name,
+    required this.nameAr,
+    required this.origin,
+    required this.style,
+    required this.everyayahFolder,
+    required this.qfApiId,
+    required this.fileSuffix,
+  });
+}
+
+// ── Top-5 reciter catalogue ────────────────────────────────────────────────────
+
+const List<QuranReciter> kQuranReciters = [
+  QuranReciter(
+    id: 1,
+    name: 'Abdurrahman As-Sudais',
+    nameAr: 'عبد الرحمن السديس',
+    origin: 'Masjid Al-Haram, Mecca',
+    style: 'Murattal',
+    everyayahFolder: 'Abdurrahmaan_As-Sudais_192kbps',
+    qfApiId: 3,
+    fileSuffix: 'sudais',
+  ),
+  QuranReciter(
+    id: 2,
+    name: 'Mishary Rashid Alafasy',
+    nameAr: 'مشاري راشد العفاسي',
+    origin: 'Kuwait',
+    style: 'Murattal',
+    everyayahFolder: 'Alafasy_128kbps',
+    qfApiId: 7,
+    fileSuffix: 'alafasy',
+  ),
+  QuranReciter(
+    id: 3,
+    name: 'Maher Al-Muaiqly',
+    nameAr: 'ماهر المعيقلي',
+    origin: 'Masjid Al-Haram, Mecca',
+    style: 'Murattal',
+    everyayahFolder: 'MaherAlMuaiqly128kbps',
+    qfApiId: 9,
+    fileSuffix: 'maher',
+  ),
+  QuranReciter(
+    id: 4,
+    name: 'Saad Al-Ghamdi',
+    nameAr: 'سعد الغامدي',
+    origin: 'Saudi Arabia',
+    style: 'Murattal',
+    everyayahFolder: 'Ghamadi_40kbps',
+    qfApiId: 11,
+    fileSuffix: 'ghamdi',
+  ),
+  QuranReciter(
+    id: 5,
+    name: 'Abu Bakr Al-Shatri',
+    nameAr: 'أبو بكر الشاطري',
+    origin: 'Saudi Arabia',
+    style: 'Murattal',
+    everyayahFolder: 'Abu_Bakr_Ash-Shaatree_128kbps',
+    qfApiId: 12,
+    fileSuffix: 'shatri',
+  ),
+];
+
+// ── Data models ───────────────────────────────────────────────────────────────
 
 class AyahTiming {
   final int ayahNumber; // 1-based ayah number within the surah
@@ -63,16 +129,60 @@ class QuranAudioService {
   QuranAudioService._();
   static final instance = QuranAudioService._();
 
-  // In-memory cache: surahNumber → SurahAudio
+  // In-memory cache: surahNumber → SurahAudio  (keyed per reciter via clear on change)
   final _cache = <int, SurahAudio>{};
 
-  // Quran Foundation API — reciter 3 = Abdurrahmaan As-Sudais
-  // (quran.com/en/reciters/3 confirms this ID)
-  static const int _reciterId = 3;
-  static const String _apiBase =
-      'https://api.qurancdn.com/api/qdc/audio/reciters';
+  static const String _apiBase          = 'https://api.qurancdn.com/api/qdc/audio/reciters';
+  static const String _prefKeyReciterId = 'quran_selected_reciter_id';
 
-  /// Prepare surah audio — single API call gets both URL and timings.
+  QuranReciter _selectedReciter = kQuranReciters.first; // default = As-Sudais
+  QuranReciter get selectedReciter => _selectedReciter;
+
+  // ── Reciter management ────────────────────────────────────────────────────
+
+  /// Load the user's saved reciter preference from SharedPreferences.
+  /// Call this once at app start (or lazily before first use).
+  Future<void> loadSavedReciter() async {
+    try {
+      final prefs   = await SharedPreferences.getInstance();
+      final savedId = prefs.getInt(_prefKeyReciterId) ?? 1;
+      _selectedReciter = kQuranReciters.firstWhere(
+        (r) => r.id == savedId,
+        orElse: () => kQuranReciters.first,
+      );
+      debugPrint('[QuranAudio] Loaded reciter: ${_selectedReciter.name}');
+    } catch (e) {
+      debugPrint('[QuranAudio] loadSavedReciter error: $e');
+    }
+  }
+
+  /// Change the active reciter and persist the choice.
+  /// Clears the in-memory cache so the next prepare() re-downloads for the new reciter.
+  Future<void> setReciter(QuranReciter reciter) async {
+    if (_selectedReciter.id == reciter.id) return;
+    _selectedReciter = reciter;
+    _cache.clear();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_prefKeyReciterId, reciter.id);
+      debugPrint('[QuranAudio] Reciter changed to: ${reciter.name}');
+    } catch (e) {
+      debugPrint('[QuranAudio] setReciter save error: $e');
+    }
+  }
+
+  // ── Per-ayah URL helper ───────────────────────────────────────────────────
+
+  /// Returns the everyayah.com streaming URL for one ayah using the selected reciter.
+  String everyayahUrl(int surahNo, int ayahNo) {
+    final s = surahNo.toString().padLeft(3, '0');
+    final a = ayahNo.toString().padLeft(3, '0');
+    return 'https://everyayah.com/data/${_selectedReciter.everyayahFolder}/$s$a.mp3';
+  }
+
+  // ── Full-surah prepare (download + timings) ───────────────────────────────
+
+  /// Prepare surah audio — uses the currently selected reciter.
   ///
   /// 1. Call Quran Foundation API for chapter audio metadata.
   /// 2. Extract audio_url and verse_timings from the response.
@@ -86,8 +196,10 @@ class QuranAudioService {
   }) async {
     if (_cache.containsKey(surahNumber)) return _cache[surahNumber]!;
 
+    final reciter = _selectedReciter;
+
     // ── 1. Fetch metadata (audio URL + timings) ─────────────────────────────
-    final meta = await _fetchMeta(surahNumber);
+    final meta     = await _fetchMeta(surahNumber, reciter.qfApiId);
     final audioUrl = meta['audio_url'] as String;
     final timings  = meta['timings']   as List<AyahTiming>;
 
@@ -97,14 +209,12 @@ class QuranAudioService {
     await audioDir.create(recursive: true);
 
     final pad       = surahNumber.toString().padLeft(3, '0');
-    // _sudais suffix = Quran Foundation reciter 3 (As-Sudais)
-    // Different filename from old mp3quran.net cache to avoid stale playback.
-    final localPath = '${audioDir.path}/surah_${pad}_sudais_qf.mp3';
+    final localPath = '${audioDir.path}/surah_${pad}_${reciter.fileSuffix}_qf.mp3';
     final localFile = File(localPath);
 
     // ── 3. Download if not cached ───────────────────────────────────────────
     if (!await localFile.exists()) {
-      debugPrint('[QuranAudio] Downloading from QF → $audioUrl');
+      debugPrint('[QuranAudio] Downloading [${reciter.name}] → $audioUrl');
       onProgress?.call(0.0);
 
       final request  = http.Request('GET', Uri.parse(audioUrl));
@@ -140,12 +250,9 @@ class QuranAudioService {
 
   // ── Metadata fetch ────────────────────────────────────────────────────────
 
-  /// Returns a map with keys:
-  ///   'audio_url' : String
-  ///   'timings'   : List<AyahTiming>
-  Future<Map<String, dynamic>> _fetchMeta(int surahNumber) async {
+  Future<Map<String, dynamic>> _fetchMeta(int surahNumber, int reciterId) async {
     final url = Uri.parse(
-      '$_apiBase/$_reciterId/audio_files'
+      '$_apiBase/$reciterId/audio_files'
       '?chapter=$surahNumber&segments=false',
     );
 
@@ -161,7 +268,6 @@ class QuranAudioService {
 
     final data  = jsonDecode(res.body) as Map<String, dynamic>;
 
-    // The API returns either "audio_files" (list) or "audio_file" (object).
     Map<String, dynamic>? file;
     if (data['audio_files'] is List && (data['audio_files'] as List).isNotEmpty) {
       file = (data['audio_files'] as List).first as Map<String, dynamic>;
@@ -173,17 +279,14 @@ class QuranAudioService {
       throw Exception('No audio_file in API response for surah $surahNumber');
     }
 
-    // ── audio URL ────────────────────────────────────────────────────────────
     final rawUrl = (file['audio_url'] ?? '').toString().trim();
     if (rawUrl.isEmpty) {
       throw Exception('Empty audio_url in API response for surah $surahNumber');
     }
-    // The API sometimes returns a relative URL — make it absolute.
     final audioUrl = rawUrl.startsWith('http')
         ? rawUrl
         : 'https://verses.quran.com/$rawUrl';
 
-    // ── verse timings ────────────────────────────────────────────────────────
     final rawTimings = file['verse_timings'] as List? ?? [];
     final timings    = <AyahTiming>[];
 
@@ -204,19 +307,16 @@ class QuranAudioService {
     }
 
     timings.sort((a, b) => a.startMs.compareTo(b.startMs));
-    debugPrint(
-        '[QuranAudio] Meta loaded: ${timings.length} timings, url=$audioUrl');
+    debugPrint('[QuranAudio] Meta loaded: ${timings.length} timings, url=$audioUrl');
 
     return {'audio_url': audioUrl, 'timings': timings};
   }
 
   // ── Timing-only fetch (no audio download) ────────────────────────────────
 
-  /// Fetches verse timings without downloading the audio file.
-  /// Useful for pre-loading timing data in the background.
   Future<List<AyahTiming>> fetchTimingsOnly(int surahNumber) async {
     try {
-      final meta = await _fetchMeta(surahNumber);
+      final meta = await _fetchMeta(surahNumber, _selectedReciter.qfApiId);
       return meta['timings'] as List<AyahTiming>;
     } catch (e) {
       debugPrint('[QuranAudio] fetchTimingsOnly failed: $e');
@@ -226,10 +326,8 @@ class QuranAudioService {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  /// Returns the 0-based list index of the ayah playing at [positionMs].
   int ayahIndexAt(List<AyahTiming> timings, int positionMs) {
     if (timings.isEmpty) return 0;
-    // Binary search for efficiency
     int lo = 0, hi = timings.length - 1;
     while (lo <= hi) {
       final mid = (lo + hi) >> 1;
@@ -238,10 +336,9 @@ class QuranAudioService {
       } else if (positionMs >= timings[mid].endMs) {
         lo = mid + 1;
       } else {
-        return mid; // found
+        return mid;
       }
     }
-    // positionMs is beyond the last timing or before the first
     if (positionMs >= timings.last.endMs) return timings.length - 1;
     return 0;
   }
@@ -254,7 +351,7 @@ class QuranAudioService {
     await audioDir.create(recursive: true);
     final s = surahNo.toString().padLeft(3, '0');
     final a = ayahNo.toString().padLeft(3, '0');
-    return '${audioDir.path}/${s}_$a.mp3';
+    return '${audioDir.path}/${s}_${a}_${_selectedReciter.fileSuffix}.mp3';
   }
 
   Future<bool> isAyahCached(int surahNo, int ayahNo) async {
@@ -267,14 +364,14 @@ class QuranAudioService {
     required int ayahCount,
     void Function(int completedCount)? onProgress,
   }) async {
+    final reciter = _selectedReciter;
     for (int i = 1; i <= ayahCount; i++) {
       final localPath = await ayahLocalPath(surahNumber, i);
       final file      = File(localPath);
       if (!await file.exists()) {
         final s   = surahNumber.toString().padLeft(3, '0');
         final a   = i.toString().padLeft(3, '0');
-        final url =
-            'https://everyayah.com/data/Abdurrahmaan_As-Sudais_192kbps/$s$a.mp3';
+        final url = 'https://everyayah.com/data/${reciter.everyayahFolder}/$s$a.mp3';
         final res = await http.get(Uri.parse(url));
         if (res.statusCode == 200) await file.writeAsBytes(res.bodyBytes);
       }
@@ -286,10 +383,7 @@ class QuranAudioService {
     final localPath = await ayahLocalPath(surahNo, ayahNo);
     final file      = File(localPath);
     if (!await file.exists()) {
-      final s   = surahNo.toString().padLeft(3, '0');
-      final a   = ayahNo.toString().padLeft(3, '0');
-      final url =
-          'https://everyayah.com/data/Abdurrahmaan_As-Sudais_192kbps/$s$a.mp3';
+      final url = everyayahUrl(surahNo, ayahNo);
       final res = await http.get(Uri.parse(url));
       if (res.statusCode == 200) {
         await file.writeAsBytes(res.bodyBytes);
@@ -309,8 +403,6 @@ class QuranAudioService {
     final audioDir = Directory('${cacheDir.path}/quran_audio');
     if (await audioDir.exists()) await audioDir.delete(recursive: true);
   }
-
-  // ── Utilities ─────────────────────────────────────────────────────────────
 
   static int _asInt(dynamic v) {
     if (v == null)   return 0;

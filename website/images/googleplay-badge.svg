@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="216" height="64" viewBox="0 0 216 64">
+  <rect width="216" height="64" rx="10" fill="#000"/>
+
+  <!--
+    Google Play kite icon
+    Play triangle: top(9,14) → bottom(9,50) → right-tip(42,32)
+    Convergence at (17,32) — ~25% from left edge
+    Blue/Green = thin wings (1/3 area each vs Yellow/Red)
+    matching real badge proportions
+  -->
+
+  <!-- BLUE  — thin upper-left wing -->
+  <path d="M9,14 L9,32 L17,32 Z" fill="#4285F4"/>
+
+  <!-- GREEN — thin lower-left wing -->
+  <path d="M9,32 L9,50 L17,32 Z" fill="#34A853"/>
+
+  <!-- YELLOW — large upper section -->
+  <path d="M9,14 L17,32 L42,32 Z" fill="#FBBC05"/>
+
+  <!-- RED — large lower section -->
+  <path d="M9,50 L17,32 L42,32 Z" fill="#EA4335"/>
+
+  <!-- Text -->
+  <text x="52" y="25"
+        font-family="Roboto,Arial,sans-serif"
+        font-size="11" fill="rgba(255,255,255,0.75)"
+        font-weight="400" letter-spacing="0.8">GET IT ON</text>
+  <text x="51" y="47"
+        font-family="Roboto,Arial,sans-serif"
+        font-size="22" fill="white"
+        font-weight="500" letter-spacing="-0.3">Google Play</text>
+</svg>

@@ -100,6 +100,20 @@ flutter:
     - assets/kaabah.png
     - assets/audio/gendang.aac
     - assets/audio/beep.wav
+    - assets/audio/kucing_mengiau.wav
+    - assets/audio/lembu_melenguh.wav
+    - assets/audio/peri_pesanan.wav
+    - assets/audio/burung_hutan.wav
+    - assets/audio/enjin_motosikal.wav
+    - assets/audio/telefon_pejabat.wav
+    - assets/audio/telefon_lama.wav
+    - assets/audio/ayam_jantan.wav
+    - assets/audio/ombak_laut.wav
+
+    - assets/audio/guruh_hujan.wav
+    - assets/audio/gendang_kaum.wav
+    - assets/audio/trompet_fanfare.wav
+    - assets/audio/telefon_vintaj.wav
 
   fonts:
     - family: AmiriQuran

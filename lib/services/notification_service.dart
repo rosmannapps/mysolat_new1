@@ -85,19 +85,97 @@ class NotificationService {
       label: 'Getar Sahaja',
       android: null,
       ios: null,
-      playSound: false,         // silent — vibrate only
+      playSound: false,
     ),
     NotifSound(
       id: 'beep',
-      label: 'Beep + Getar',
-      android: 'beep',          // android/app/src/main/res/raw/beep.wav
-      ios: 'beep.wav',          // bundled in Runner (Xcode)
+      label: 'Beep',
+      android: 'beep',
+      ios: 'beep.wav',
     ),
     NotifSound(
       id: 'gendang',
-      label: 'Gendang + Getar',
-      android: 'gendang',       // android/app/src/main/res/raw/gendang.aac
-      ios: 'gendang.wav',       // bundled in Runner (Xcode)
+      label: 'Gendang',
+      android: 'gendang',
+      ios: 'gendang.wav',
+    ),
+    NotifSound(
+      id: 'ayam_jantan',
+      label: 'Ayam Jantan',
+      android: 'ayam_jantan',
+      ios: 'ayam_jantan.wav',
+    ),
+    NotifSound(
+      id: 'burung_hutan',
+      label: 'Burung Hutan',
+      android: 'burung_hutan',
+      ios: 'burung_hutan.wav',
+    ),
+    NotifSound(
+      id: 'ombak_laut',
+      label: 'Ombak Laut',
+      android: 'ombak_laut',
+      ios: 'ombak_laut.wav',
+    ),
+    NotifSound(
+      id: 'guruh_hujan',
+      label: 'Guruh & Hujan',
+      android: 'guruh_hujan',
+      ios: 'guruh_hujan.wav',
+    ),
+    NotifSound(
+      id: 'peri_pesanan',
+      label: 'Peri Pesanan',
+      android: 'peri_pesanan',
+      ios: 'peri_pesanan.wav',
+    ),
+    NotifSound(
+      id: 'telefon_lama',
+      label: 'Telefon Lama',
+      android: 'telefon_lama',
+      ios: 'telefon_lama.wav',
+    ),
+    NotifSound(
+      id: 'telefon_pejabat',
+      label: 'Telefon Pejabat',
+      android: 'telefon_pejabat',
+      ios: 'telefon_pejabat.wav',
+    ),
+    NotifSound(
+      id: 'telefon_vintaj',
+      label: 'Telefon Vintaj',
+      android: 'telefon_vintaj',
+      ios: 'telefon_vintaj.wav',
+    ),
+    NotifSound(
+      id: 'trompet_fanfare',
+      label: 'Trompet Fanfare',
+      android: 'trompet_fanfare',
+      ios: 'trompet_fanfare.wav',
+    ),
+    NotifSound(
+      id: 'gendang_kaum',
+      label: 'Gendang Kaum',
+      android: 'gendang_kaum',
+      ios: 'gendang_kaum.wav',
+    ),
+    NotifSound(
+      id: 'kucing_mengiau',
+      label: 'Kucing Mengiau',
+      android: 'kucing_mengiau',
+      ios: 'kucing_mengiau.wav',
+    ),
+    NotifSound(
+      id: 'lembu_melenguh',
+      label: 'Lembu Melenguh',
+      android: 'lembu_melenguh',
+      ios: 'lembu_melenguh.wav',
+    ),
+    NotifSound(
+      id: 'enjin_motosikal',
+      label: 'Enjin Motosikal',
+      android: 'enjin_motosikal',
+      ios: 'enjin_motosikal.wav',
     ),
   ];
 

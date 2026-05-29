@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MySolat Malaysia — Waktu Solat, Al-Quran & Panduan Ibadah</title>
+  <meta name="description" content="MySolat Malaysia — Aplikasi waktu solat yang ringkas, tepat dan mesra pengguna. Lengkap dengan al-Quran, Qiblat, Zikir & lebih banyak lagi." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&family=Amiri:wght@400;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --green:   #2F5D46;
+      --green-l: #3D7A5E;
+      --green-xl:#E8F0EB;
+      --gold:    #C9A84C;
+      --gold-l:  #F0DFA0;
+      --cream:   #F7F3ED;
+      --text:    #1A2E23;
+      --muted:   #5A7265;
+      --white:   #FFFFFF;
+      --radius:  18px;
+      --shadow:  0 8px 32px rgba(47,93,70,.12);
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Poppins', sans-serif;
+      background: var(--cream);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    /* ─── NAV ─── */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(247,243,237,.92);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid rgba(47,93,70,.10);
+      padding: 0 24px;
+      display: flex; align-items: center; justify-content: space-between;
+      height: 64px;
+    }
+    .nav-logo {
+      font-size: 16px; font-weight: 800;
+      color: var(--green); text-decoration: none;
+      display: flex; align-items: center; gap: 9px;
+    }
+    .nav-logo img {
+      width: 34px; height: 34px;
+      border-radius: 9px;
+      box-shadow: 0 2px 8px rgba(47,93,70,.20);
+    }
+    .nav-links { display: flex; gap: 8px; }
+    .nav-links a {
+      text-decoration: none; font-size: 14px; font-weight: 600;
+      color: var(--muted); padding: 6px 14px; border-radius: 999px;
+      transition: all .2s;
+    }
+    .nav-links a:hover { background: var(--green-xl); color: var(--green); }
+    .nav-links a.active { background: var(--green); color: white; }
+
+    /* ─── HERO ─── */
+    .hero {
+      padding: 72px 24px 60px;
+      text-align: center;
+      background: linear-gradient(160deg, #E8F0EB 0%, #F7F3ED 55%, #F2EBD9 100%);
+      position: relative; overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute; inset: 0;
+      background-image: radial-gradient(circle, rgba(201,168,76,.08) 1px, transparent 1px);
+      background-size: 28px 28px;
+      pointer-events: none;
+    }
+    .bismillah {
+      font-family: 'Amiri', serif;
+      font-size: clamp(22px, 5vw, 32px);
+      color: var(--gold);
+      direction: rtl;
+      margin-bottom: 28px;
+      display: block;
+    }
+    .app-icon {
+      width: 110px; height: 110px;
+      border-radius: 26px;
+      margin: 0 auto 24px;
+      display: block;
+      box-shadow: 0 12px 40px rgba(47,93,70,.30);
+      object-fit: cover;
+    }
+    .hero h1 {
+      font-size: clamp(32px, 7vw, 56px);
+      font-weight: 900; line-height: 1.1;
+      color: var(--green);
+      margin-bottom: 8px;
+    }
+    .hero h1 span { color: var(--gold); }
+    .hero p {
+      font-size: clamp(15px, 2.5vw, 18px);
+      color: var(--muted); font-weight: 500;
+      max-width: 520px; margin: 0 auto 36px;
+    }
+    .hero-badges {
+      display: flex; gap: 14px; justify-content: center; flex-wrap: wrap;
+      margin-bottom: 40px;
+    }
+    .store-badge {
+      display: inline-block;
+      border-radius: 13px;
+      box-shadow: 0 4px 18px rgba(0,0,0,.18);
+      pointer-events: none;
+      cursor: default;
+    }
+    .store-badge img { height: 58px; display: block; border-radius: 13px; }
+    .btn-primary {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--green); color: white;
+      border-radius: 999px; padding: 14px 32px;
+      font-weight: 800; font-size: 15px; text-decoration: none;
+      box-shadow: 0 6px 24px rgba(47,93,70,.35);
+      transition: all .2s;
+    }
+    .btn-primary:hover { background: var(--green-l); transform: translateY(-2px); }
+
+    /* ─── STATS BAR ─── */
+    .stats {
+      background: var(--green);
+      padding: 24px;
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(120px,1fr));
+      gap: 16px; text-align: center;
+    }
+    .stat-val { font-size: 26px; font-weight: 900; color: white; }
+    .stat-lbl { font-size: 12px; font-weight: 600; color: rgba(255,255,255,.70); }
+
+    /* ─── SECTION ─── */
+    section { padding: 72px 24px; }
+    .section-tag {
+      display: inline-block; background: var(--green-xl);
+      color: var(--green); font-size: 12px; font-weight: 800;
+      letter-spacing: .08em; text-transform: uppercase;
+      border-radius: 999px; padding: 4px 14px; margin-bottom: 12px;
+    }
+    h2 {
+      font-size: clamp(24px, 4vw, 36px); font-weight: 900;
+      color: var(--text); margin-bottom: 8px;
+    }
+    .section-sub { font-size: 15px; color: var(--muted); max-width: 560px; }
+
+    /* ─── FEATURES ─── */
+    .features { background: white; }
+    .features-inner { max-width: 1080px; margin: 0 auto; }
+    .features-header { text-align: center; margin-bottom: 48px; }
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+    }
+    .feat-card {
+      background: var(--cream);
+      border-radius: var(--radius); padding: 24px;
+      border: 1px solid rgba(47,93,70,.08);
+      transition: all .25s;
+    }
+    .feat-card:hover { transform: translateY(-4px); box-shadow: var(--shadow); }
+    .feat-icon {
+      width: 52px; height: 52px;
+      background: var(--green-xl); border-radius: 14px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 26px; margin-bottom: 14px;
+    }
+    .feat-title { font-size: 16px; font-weight: 800; margin-bottom: 6px; }
+    .feat-desc { font-size: 13.5px; color: var(--muted); line-height: 1.55; }
+
+    /* ─── ABOUT / DEDICATED ─── */
+    .about { background: var(--cream); }
+    .about-inner {
+      max-width: 900px; margin: 0 auto;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: center;
+    }
+    .about-text p { font-size: 15px; color: var(--muted); margin-bottom: 16px; line-height: 1.7; }
+    .about-visual {
+      background: linear-gradient(135deg, var(--green) 0%, #1E3D2E 100%);
+      border-radius: 28px; padding: 40px 32px;
+      text-align: center; color: white;
+      box-shadow: var(--shadow);
+    }
+    .about-visual .big-icon { margin-bottom: 16px; }
+    .about-visual .big-icon img { width: 90px; height: 90px; border-radius: 22px; box-shadow: 0 8px 28px rgba(0,0,0,.30); display: block; margin: 0 auto; }
+    .about-visual h3 { font-size: 22px; font-weight: 900; margin-bottom: 8px; }
+    .about-visual p { font-size: 13.5px; color: rgba(255,255,255,.75); line-height: 1.6; }
+    .about-visual .gold-tag {
+      display: inline-block; background: var(--gold);
+      color: #1A0000; font-size: 12px; font-weight: 800;
+      border-radius: 999px; padding: 4px 14px; margin-top: 16px;
+    }
+
+    /* ─── CTA ─── */
+    .cta {
+      background: linear-gradient(135deg, var(--green) 0%, #1E3D2E 100%);
+      text-align: center; color: white;
+    }
+    .cta-inner { max-width: 600px; margin: 0 auto; }
+    .cta .bismillah { color: var(--gold-l); font-size: 22px; }
+    .cta h2 { color: white; margin-bottom: 12px; }
+    .cta p { color: rgba(255,255,255,.75); margin-bottom: 36px; }
+    .cta-buttons { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+    .btn-outline {
+      display: inline-flex; align-items: center; gap: 8px;
+      border: 2px solid rgba(255,255,255,.50); color: white;
+      border-radius: 999px; padding: 12px 28px;
+      font-weight: 700; font-size: 14px; text-decoration: none;
+      transition: all .2s;
+    }
+    .btn-outline:hover { background: rgba(255,255,255,.12); }
+
+    /* ─── FOOTER ─── */
+    footer {
+      background: var(--text); color: rgba(255,255,255,.65);
+      padding: 40px 24px; text-align: center;
+    }
+    footer a { color: var(--gold-l); text-decoration: none; font-weight: 600; }
+    footer a:hover { color: var(--gold); }
+    .footer-links { display: flex; gap: 24px; justify-content: center; flex-wrap: wrap; margin-bottom: 20px; }
+    .footer-copy { font-size: 13px; }
+    .footer-bismillah { font-family: 'Amiri', serif; direction: rtl; font-size: 20px; color: var(--gold); margin-bottom: 16px; }
+
+    /* ─── RESPONSIVE ─── */
+    @media (max-width: 680px) {
+      .about-inner { grid-template-columns: 1fr; }
+      .nav-links { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="/" class="nav-logo">
+    <img src="/images/mysolat-icon.png" alt="MySolat" />
+    MySolat Malaysia
+  </a>
+  <div class="nav-links">
+    <a href="/" class="active">MySolat</a>
+    <a href="/sokong/">Sokong</a>
+    <a href="/hubungi/">Hubungi</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <span class="bismillah">بِسْمِ اللّٰهِ الرَّحْمٰنِ الرَّحِيْمِ</span>
+  <img src="/images/mysolat-icon.png" alt="MySolat Malaysia" class="app-icon" />
+  <h1>MySolat <span>Malaysia</span></h1>
+  <p>Waktu solat yang tepat, panduan Qiblat, al-Quran, Zikir dan lebih banyak lagi — dalam satu aplikasi yang ringkas dan mesra pengguna.</p>
+
+  <div class="hero-badges">
+    <div class="store-badge">
+      <img src="/images/googleplay-badge.svg" alt="Get it on Google Play" />
+    </div>
+    <div class="store-badge">
+      <img src="/images/appstore-badge.svg" alt="Download on the App Store" />
+    </div>
+  </div>
+
+  <a href="/sokong/" class="btn-primary">❤️ &nbsp;Sokong Aplikasi Ini</a>
+</section>
+
+<!-- STATS -->
+<div class="stats">
+  <div>
+    <div class="stat-val">336+</div>
+    <div class="stat-lbl">Kawasan JAKIM</div>
+  </div>
+  <div>
+    <div class="stat-val">100%</div>
+    <div class="stat-lbl">Data Rasmi JAKIM</div>
+  </div>
+  <div>
+    <div class="stat-val">Percuma</div>
+    <div class="stat-lbl">Tiada Iklan</div>
+  </div>
+  <div>
+    <div class="stat-val">iOS & Android</div>
+    <div class="stat-lbl">Platform</div>
+  </div>
+</div>
+
+<!-- FEATURES -->
+<section class="features">
+  <div class="features-inner">
+    <div class="features-header">
+      <span class="section-tag">Ciri-Ciri Utama</span>
+      <h2>Semua yang anda perlukan</h2>
+      <p class="section-sub">MySolat direka untuk memudahkan ibadah harian anda dengan paparan yang bersih dan mudah difahami.</p>
+    </div>
+    <div class="features-grid">
+      <div class="feat-card">
+        <div class="feat-icon">🕰️</div>
+        <div class="feat-title">Waktu Solat Tepat</div>
+        <p class="feat-desc">Waktu solat bersumberkan data rasmi JAKIM untuk semua zon di seluruh Malaysia. Notifikasi azan boleh diatur mengikut keperluan anda.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon">🧭</div>
+        <div class="feat-title">Arah Qiblat</div>
+        <p class="feat-desc">Kompas Qiblat yang tepat menggunakan sensor magnetometer peranti anda. Cukup pusing telefon dan ikuti penanda arah Kaabah.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon">📖</div>
+        <div class="feat-title">Al-Quran</div>
+        <p class="feat-desc">Baca al-Quran dengan paparan mushaf dan tajweed yang jelas. Tanda halaman dan teruskan bacaan pada bila-bila masa.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon">📿</div>
+        <div class="feat-title">Zikir Harian</div>
+        <p class="feat-desc">Zikir pagi dan petang lengkap dengan terjemahan Bahasa Malaysia. Amalkan setiap hari dengan mudah.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon">📅</div>
+        <div class="feat-title">Jadual Solat Bulanan</div>
+        <p class="feat-desc">Lihat jadual waktu solat sebulan penuh dalam pandangan kalendar yang tersusun. Sesuai untuk dirujuk awal waktu.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon">🎙️</div>
+        <div class="feat-title">YouTube Islam</div>
+        <p class="feat-desc">Akses saluran YouTube pilihan dengan kandungan ilmu Islam yang sahih terus dari dalam aplikasi.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ABOUT / DEDICATED -->
+<section class="about">
+  <div class="about-inner">
+    <div class="about-text">
+      <span class="section-tag">Tentang MySolat</span>
+      <h2>Dibangunkan dengan ikhlas</h2>
+      <p>MySolat Malaysia dibangunkan oleh Rosman Daud — seorang pembangun bebas dari Malaysia — dengan harapan aplikasi ini dapat membantu umat Islam menjalankan ibadah harian dengan lebih mudah dan khusyuk.</p>
+      <p>Aplikasi ini percuma dan tanpa iklan. Setiap ciri direka dengan teliti untuk memastikan pengalaman pengguna yang selesa dan bersih.</p>
+      <p>Alhamdulillah, semoga usaha kecil ini diterima oleh Allah sebagai amal jariah. <em>Amin Ya Rabbal 'Alamin.</em></p>
+      <a href="/sokong/" class="btn-primary" style="margin-top:8px;">❤️ &nbsp;Sokong Pembangunan</a>
+    </div>
+    <div class="about-visual">
+      <div class="big-icon"><img src="/images/mysolat-icon.png" alt="MySolat Malaysia" /></div>
+      <h3>MySolat Malaysia</h3>
+      <p>Ringkas • Tepat • Mesra Pengguna</p>
+      <div class="gold-tag">Rosman Daud · Pembangun</div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta">
+  <div class="cta-inner">
+    <span class="bismillah" style="margin-bottom:20px;display:block;">الحَمْدُ لِلّٰهِ رَبِّ العَالَمِيْنَ</span>
+    <h2>Muat turun MySolat sekarang</h2>
+    <p>Percuma. Tanpa iklan. Sentiasa dikemaskini.</p>
+    <div class="cta-buttons">
+      <div class="store-badge">
+        <img src="/images/googleplay-badge.svg" alt="Get it on Google Play" />
+      </div>
+      <div class="store-badge">
+        <img src="/images/appstore-badge.svg" alt="Download on the App Store" />
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-bismillah">بَارَكَ اللّٰهُ فِيكُمْ</div>
+  <div class="footer-links">
+    <a href="/">MySolat</a>
+    <a href="/sokong/">Sokong Kami</a>
+    <a href="/hubungi/">Hubungi</a>
+  </div>
+  <p class="footer-copy">© 2025 <a href="/">rosmannapps.com</a> · Dibangunkan dengan ❤️ oleh Rosman Daud · Malaysia</p>
+</footer>
+
+</body>
+</html>

@@ -168,16 +168,29 @@ class TetapanPage extends StatelessWidget {
               ),
 
               // ── "Sokong MySolat" donation card ──
-              // Tappable full-width card that opens https://rosmannapps.github.io/sokong/
+              // Tappable full-width card that opens https://mysolat.rosmannapps.com/sokong/
               // in the user's default browser. Payment processing happens
-              // entirely on the external website so neither Apple nor Google
-              // takes a cut.
+              // entirely on the external website — no personal phone number
+              // or bank account details are shown inside the app.
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                 sliver: SliverToBoxAdapter(
                   child: _SokongCard(
                     accent: accent,
                     onTap: () => _openSokongPage(context),
+                  ),
+                ),
+              ),
+
+              // ── "Hubungi Kami" contact card ──
+              // Directs users to mysolat.rosmannapps.com for all communication.
+              // No personal phone number or bank details in the app.
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                sliver: SliverToBoxAdapter(
+                  child: _HubungiCard(
+                    accent: accent,
+                    onTap: () => _openHubungiPage(context),
                   ),
                 ),
               ),
@@ -415,30 +428,49 @@ class _SettingCard extends StatelessWidget {
 }
 
 /// Opens the MySolat donation page in the user's default browser.
-/// Uses LaunchMode.externalApplication so the URL opens in Safari/Chrome
-/// using an in-app browser (Chrome Custom Tab / SFSafariViewController)
-/// because no payment processing happens inside the app itself.
-Future<void> _openSokongPage(BuildContext context) async {
-  final uri = Uri.parse('https://rosmannapps.github.io/sokong/');
+/// Opens a URL trying inAppBrowserView first, then falling back to
+/// externalApplication. Returns true if the URL was launched successfully.
+Future<bool> _launchWithFallback(Uri uri) async {
   try {
-    final ok = await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
-    if (!ok && context.mounted) {
-      _showSokongError(context);
-    }
-  } catch (_) {
-    if (context.mounted) _showSokongError(context);
+    if (await launchUrl(uri, mode: LaunchMode.inAppBrowserView)) return true;
+  } catch (_) {}
+  try {
+    if (await launchUrl(uri, mode: LaunchMode.externalApplication)) return true;
+  } catch (_) {}
+  return false;
+}
+
+/// Directs to mysolat.rosmannapps.com/sokong/ — no personal phone number or
+/// bank account details are shown inside the app.
+Future<void> _openSokongPage(BuildContext context) async {
+  final uri = Uri.parse('https://mysolat.rosmannapps.com/sokong/');
+  final ok = await _launchWithFallback(uri);
+  if (!ok && context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Tidak dapat membuka pelayar. Sila lawati mysolat.rosmannapps.com/sokong secara manual.',
+        ),
+        duration: Duration(seconds: 4),
+      ),
+    );
   }
 }
 
-void _showSokongError(BuildContext context) {
-  ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(
-      content: Text(
-        'Tidak dapat membuka pelayar. Sila lawati rosmannapps.github.io/sokong secara manual.',
+/// Opens the mysolat.rosmannapps.com contact/communication page.
+Future<void> _openHubungiPage(BuildContext context) async {
+  final uri = Uri.parse('https://mysolat.rosmannapps.com/hubungi/');
+  final ok = await _launchWithFallback(uri);
+  if (!ok && context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Tidak dapat membuka pelayar. Sila lawati mysolat.rosmannapps.com secara manual.',
+        ),
+        duration: Duration(seconds: 4),
       ),
-      duration: Duration(seconds: 4),
-    ),
-  );
+    );
+  }
 }
 
 /// Full-width donation card shown between the settings grid and the bottom
@@ -513,6 +545,89 @@ class _SokongCard extends StatelessWidget {
               Icon(
                 Icons.chevron_right_rounded,
                 color: accent.withOpacity(0.75),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Full-width contact card. Tapping it opens mysolat.rosmannapps.com/hubungi/
+/// so users can reach the developer without needing a personal phone
+/// number or bank account details inside the app.
+class _HubungiCard extends StatelessWidget {
+  final Color accent;
+  final VoidCallback onTap;
+
+  const _HubungiCard({
+    required this.accent,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const contactColor = Color(0xFF1A6FA6); // blue tone for contact
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
+        child: Ink(
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+          decoration: BoxDecoration(
+            color: contactColor.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: contactColor.withOpacity(0.22)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: contactColor.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  Icons.mail_rounded,
+                  color: contactColor,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Hubungi Kami',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                        color: contactColor,
+                        height: 1.15,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Cadangan, pertanyaan atau maklum balas — lawati mysolat.rosmannapps.com',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black.withOpacity(0.65),
+                        height: 1.25,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: contactColor.withOpacity(0.75),
               ),
             ],
           ),

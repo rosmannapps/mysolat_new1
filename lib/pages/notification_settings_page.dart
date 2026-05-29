@@ -67,16 +67,14 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
 
     if (!sound.playSound) return; // 'Getar Sahaja' — vibration only.
 
-    String? assetPath;
-    switch (sound.id) {
-      case 'beep':
-        assetPath = 'audio/beep.wav';
-        break;
-      case 'gendang':
-        assetPath = 'audio/gendang.aac';
-        break;
-      default:
-        assetPath = null;
+    // Resolve asset path: gendang uses .aac, everything else .wav
+    final String? assetPath;
+    if (sound.id == 'gendang') {
+      assetPath = 'audio/gendang.aac';
+    } else if (sound.ios != null) {
+      assetPath = 'audio/${sound.ios}';
+    } else {
+      assetPath = null;
     }
     if (assetPath == null) return;
 
